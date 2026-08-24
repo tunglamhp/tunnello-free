@@ -1,0 +1,11 @@
+[Unit]
+Description=Tunello DDNS: keep Porkbun A records in sync with the public IPv4
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# EnvironmentFile only assigns unset variables in systemd; the script itself
+# prefers real environment over deploy/.env, so pass the config explicitly:
+EnvironmentFile=/opt/ddns-deploy/.env
+ExecStart=/opt/ddns-deploy/ddns-porkbun.sh

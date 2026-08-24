@@ -1,0 +1,21 @@
+[package]
+name = "ddns-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dioxus.workspace = true
+dioxus-web.workspace = true
+gloo-net.workspace = true
+gloo-timers.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+web-sys.workspace = true
+
+[features]
+default = ["web"]
+web = ["dioxus/web"]

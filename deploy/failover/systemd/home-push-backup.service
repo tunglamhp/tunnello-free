@@ -1,0 +1,9 @@
+[Unit]
+Description=Tunello home -> VPS backup push (SQLite snapshot + certs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/ddns-deploy/.env
+ExecStart=/opt/ddns-deploy/home-push-backup.sh

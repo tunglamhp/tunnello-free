@@ -1,0 +1,15 @@
+[Unit]
+Description=Tunello failover monitor: watch the home broker, flip DNS to this VPS when it dies
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/ddns-deploy/.env
+ExecStart=/opt/ddns-deploy/vps-monitor.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

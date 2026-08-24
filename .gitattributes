@@ -1,0 +1,16 @@
+# Line endings: shell scripts and Dockerfiles MUST be LF (CRLF breaks
+# `#!/bin/sh` shebangs and Docker COPY-based exec in Linux containers).
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.md text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+
+# Secret-bearing local artifacts — never ship in archives (git archive / zip
+# of the working tree): dev/prod DBs, deploy secrets, dev CA keys.
+deploy/.env export-ignore
+ddns.db* export-ignore
+demo/demo.db* export-ignore
+*.dev-ca.pem export-ignore
+*.pem export-ignore

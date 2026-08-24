@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = ["crates/ddns-proto", "crates/ddns-server", "crates/ddns-client", "crates/ddns-echo", "crates/ddns-web"]
+
+[workspace.package]
+version = "0.4.1"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+axum = { version = "0.8", features = ["ws"] }
+bytes = "1"
+dashmap = "6"
+futures-util = "0.3"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+rand = "0.9"
+rustls = "0.23"
+rustls-pemfile = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.26"
+tokio-stream = "0.1"
+tokio-tungstenite = "0.26"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+argon2 = "0.5"
+base64 = "0.22"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+x509-parser = "0.16"
+rustls-acme = { version = "0.12", features = ["aws-lc-rs", "tokio", "axum"] }
+webpki-roots = "0.26"
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-no-provider"] }
+dioxus = { version = "0.7.10", features = ["web"] }
+dioxus-web = "0.7.10"
+gloo-net = { version = "0.6", features = ["json"] }
+gloo-timers = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "Node"] }
+redis = { version = "1", default-features = false, features = ["connection-manager", "tokio-comp"] }
+prometheus = { version = "0.13", default-features = false }
+
+# Dev builds of this workspace accumulate a ~37 GB incremental cache plus
+# ~180 MB PDB per test binary on Windows. Disable incremental for the dev
+# profile (used by `cargo build`, `cargo test`, and the debug binaries) so
+# target/ stays small; rebuilds are full-crate but the workspace is modest.
+[profile.dev]
+incremental = false
+
+# Release profile: panic=abort + strip + LTO keep the distributed binaries
+# small and fast (the install script + release CI publish these).
+[profile.release]
+panic = "abort"
+strip = true
+lto = true
+codegen-units = 1

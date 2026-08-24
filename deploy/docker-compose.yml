@@ -1,0 +1,107 @@
+# ddns tunnel broker — production Compose file.
+#
+# Usage:
+#   cp .env.example .env      # set DDNS_DOMAIN + cert source
+#   docker compose up -d --build
+#
+# The broker listens on container HTTPS 443 and publishes host port 443 by
+# default so public URLs carry no port (https://<slug>.<domain>). If 443 is
+# already taken by another web server, set DDNS_PUBLIC_PORT=8443 (URLs then
+# show :8443). The SQLite DB and the client download dir
+# live in the named volume `broker-data` (/data). Static certificates are
+# mounted read-only from ./certs (put fullchain.pem + privkey.pem there).
+
+services:
+  broker:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: tunnello-broker:latest
+    restart: unless-stopped
+    ports:
+      - "${DDNS_PUBLIC_PORT:-443}:443"  # public HTTPS / WSS (443 → clean URLs)
+      - "${DDNS_STUN_PORT:-3478}:3478/udp"  # WebRTC ICE STUN (P2P data plane)
+      # - "80:80"      # enable with DDNS_HTTP_LISTEN=0.0.0.0:80 (HTTP-01 + 301)
+    env_file: .env
+    environment:
+      # State paths are fixed inside the container regardless of host volume.
+      DDNS_DB: /data/ddns.db
+      DDNS_DOWNLOAD_DIR: /data/downloads
+      DDNS_LISTEN: ${DDNS_LISTEN:-0.0.0.0:443}
+      DDNS_WEB_DIST: ${DDNS_WEB_DIST:-/opt/ddns/web/public}
+      DDNS_PUBLIC_PORT: ${DDNS_PUBLIC_PORT:-443}
+      DDNS_STUN_PORT: ${DDNS_STUN_PORT:-3478}
+      # Rate limiting + the token-balance hot counter. Empty → SQLite-only
+      # mode (no rate limiting); absent → the bundled redis service.
+      DDNS_REDIS_URL: ${DDNS_REDIS_URL-redis://redis:6379}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - broker-data:/data
+      - ./certs:/certs:ro
+    read_only: true            # rootfs read-only; /data (volume) + /tmp (tmpfs) writable
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN       # entrypoint: /data ownership for the ddns user
+      - SETUID      # entrypoint: setpriv --reuid=ddns (privilege drop)
+      - SETGID      # entrypoint: setpriv --regid=ddns
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://127.0.0.1:443/install.sh >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Optional WireGuard control-plane network. Enable with:
+  #   docker compose --profile wireguard up -d
+  # It provides a private operator network for SSH/dashboard access; public
+  # tunnel traffic remains on the existing TLS/WSS endpoint.
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    profiles: ["wireguard"]
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      PUID: ${WG_PUID:-1000}
+      PGID: ${WG_PGID:-1000}
+      TZ: ${TZ:-UTC}
+      SERVERURL: ${WG_SERVERURL:?set WG_SERVERURL to the VPS public IP or DNS name}
+      SERVERPORT: ${WG_SERVERPORT:-51821}
+      PEERS: ${WG_PEERS:-operator}
+      PEERDNS: ${WG_PEERDNS:-auto}
+      INTERNAL_SUBNET: ${WG_INTERNAL_SUBNET:-10.13.13.0}
+    ports:
+      - "${WG_SERVERPORT:-51821}:51820/udp"
+    volumes:
+      - wireguard-config:/config
+      - /lib/modules:/lib/modules:ro
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+
+  # Redis backs rate limiting (fixed-minute windows) and the token-balance
+  # hot counter. In-memory only (no AOF/RDB) — a restart resets the current
+  # minute's counters, which is the intended fail-open behavior.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  broker-data:
+  redis-data:
+  wireguard-config:

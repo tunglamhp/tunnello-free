@@ -1,0 +1,14 @@
+# Docker build context exclusions — keep the context small (target/ alone is tens of GB)
+# and never ship secrets or scratch state into the image build.
+target
+.git
+.worktrees
+.demo
+.superpowers
+dist
+demo
+deploy/.env
+deploy/certs
+ddns.db*
+*.log
+*.err.log

@@ -1,0 +1,197 @@
+name: Release
+
+# Tag-driven release: pushing a `v*` tag builds the client for every platform
+# the install script supports, the Linux broker binaries, and publishes a
+# GitHub release with the generated changelog + binaries as assets.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.94"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version (tag must match Cargo workspace)
+        id: ver
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          CARGO_V="$(grep -m1 '^version' Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')"
+          if [ "$CARGO_V" != "$V" ]; then
+            echo "version mismatch: tag=$V workspace=$CARGO_V" >&2
+            echo "update [workspace.package] version in Cargo.toml before tagging" >&2
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Release $V (matches Cargo workspace)"
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust + wasm target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: wasm32-unknown-unknown
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --version 0.7.10 --locked
+
+      - name: Build web bundle
+        run: dx bundle --platform web --package ddns-web --release
+
+      - name: Upload web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle
+          path: dist
+          if-no-files-found: error
+
+  build:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Client: every triple the install script / download page serves.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            kind: client
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            kind: client
+          - os: macos-13
+            target: x86_64-apple-darwin
+            kind: client
+          - os: macos-14
+            target: aarch64-apple-darwin
+            kind: client
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            kind: client
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            kind: client
+          # Server: static Linux broker for the VPS (musl, native ARM runner).
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            kind: server
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            kind: server
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install musl toolchain
+        if: endsWith(matrix.target, '-musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Setup Rust + target
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-${{ matrix.kind }}
+
+      - name: Build binaries
+        shell: bash
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.kind }}" = "server" ]; then
+            cargo build --release --locked --target ${{ matrix.target }} -p ddns-server
+          else
+            cargo build --release --locked --target ${{ matrix.target }} -p ddns-client
+          fi
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET="${{ matrix.target }}"
+          EXT=""
+          if [[ "$TARGET" == *-windows-* ]]; then EXT=".exe"; fi
+          mkdir -p staging
+          if [ "${{ matrix.kind }}" = "server" ]; then
+            cp "target/${TARGET}/release/ddns-server${EXT}" "staging/ddns-server-${TARGET}"
+          else
+            cp "target/${TARGET}/release/ddns${EXT}" "staging/ddns-${TARGET}"
+          fi
+          ls -la staging
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.kind }}-${{ matrix.target }}
+          path: staging/*
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Assemble server archives (binary + web bundle)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p archives
+          for srv in artifacts/ddns-server-*; do
+            triple="${srv#artifacts/ddns-server-}"
+            pack="pack/ddns-server-${triple}"
+            mkdir -p "${pack}/web"
+            cp "${srv}" "${pack}/ddns-server"
+            cp -r artifacts/public "${pack}/web/public"
+            cp LICENSE "${pack}/LICENSE"
+            tar -C pack -czf "archives/ddns-server-${triple}.tar.gz" "ddns-server-${triple}"
+            rm -f "${srv}"   # raw server binary is published only inside the tarball
+          done
+          ls -lh archives
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/ddns-*
+            archives/ddns-server-*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

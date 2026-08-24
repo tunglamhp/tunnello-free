@@ -1,0 +1,37 @@
+[package]
+name = "ddns-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Spec §8 / install.sh name the client binary `ddns`; the package stays
+# ddns-client (lib target) with an explicit bin target.
+[[bin]]
+name = "ddns"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+dashmap.workspace = true
+bytes.workspace = true
+ddns-proto = { path = "../ddns-proto" }
+futures-util.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-tungstenite = { workspace = true, features = ["connect", "rustls-tls-webpki-roots"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+webpki-roots = "0.26"
+webrtc = "0.20.3"
+# webrtc 0.20's PeerConnectionEventHandler is an #[async_trait]-annotated trait;
+# implementing it requires the async-trait proc macro as a direct dependency.
+async-trait = "0.1"
+
+[dev-dependencies]
+ddns-server = { path = "../ddns-server" }
+rcgen = "0.13"
+tokio-rustls.workspace = true

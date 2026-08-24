@@ -1,0 +1,3 @@
+# ACME cache written by rustls-acme's DirCache during cert issuance (tests
+# exercise the acme path with an unreachable directory; cache is created).
+acme_cache/

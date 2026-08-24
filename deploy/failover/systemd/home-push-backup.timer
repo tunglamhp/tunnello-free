@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Tunello home backup push every 5 minutes
+Requires=home-push-backup.service
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,56 @@
+[package]
+name = "ddns-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Operator launcher: binds the TLS listener, serves dashboard + REST +
+# /connect + /download, drives ACME or static/dev certs.
+[[bin]]
+name = "ddns-server"
+path = "src/main.rs"
+
+[dependencies]
+ddns-proto = { path = "../ddns-proto" }
+axum.workspace = true
+bytes.workspace = true
+dashmap.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+rand.workspace = true
+rcgen = "0.13"
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-stream.workspace = true
+tower.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite.workspace = true
+argon2.workspace = true
+base64.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+qrcode.workspace = true
+sha2.workspace = true
+x509-parser.workspace = true
+rustls-acme.workspace = true
+reqwest.workspace = true
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder", "tokio1", "hostname", "tokio1-rustls", "webpki-roots", "aws-lc-rs"] }
+redis.workspace = true
+prometheus.workspace = true
+
+[dev-dependencies]
+hmac.workspace = true
+sha2.workspace = true
+rusqlite.workspace = true
+hyper-rustls = { version = "0.27", features = ["http2"] }
+rcgen = "0.13"
+tokio-tungstenite = { workspace = true, features = ["connect", "rustls-tls-webpki-roots"] }
