@@ -21,35 +21,37 @@ pub struct TokenLimits {
 }
 
 impl Default for TokenLimits {
+    /// Free edition: everything unlimited by default. Operators can still set
+    /// per-token limits via the dashboard when they want guard rails.
     fn default() -> Self {
         TokenLimits {
-            max_sessions: 2,
-            max_streams: 32,
-            max_bytes: 2 * 1024 * 1024 * 1024,
-            ttl_secs: 8 * 3600,
-            max_tunnels: 2,
-            bandwidth_monthly: 5 * 1024 * 1024 * 1024,
-            max_clients: 50,
-            rate_limit_rpm: 60,
+            max_sessions: 0,
+            max_streams: 0,
+            max_bytes: 0,
+            ttl_secs: 0,
+            max_tunnels: 0,
+            bandwidth_monthly: 0,
+            max_clients: 0,
+            rate_limit_rpm: 0,
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn free_tier_defaults_match_spec() {
+    fn free_edition_defaults_are_unlimited() {
         let l = TokenLimits::default();
-        assert_eq!(l.max_sessions, 2);
-        assert_eq!(l.max_streams, 32);
-        assert_eq!(l.max_bytes, 2 * 1024 * 1024 * 1024); // 2 GiB
-        assert_eq!(l.ttl_secs, 8 * 3600); // 8 h
-        assert_eq!(l.max_tunnels, 2);
-        assert_eq!(l.bandwidth_monthly, 5 * 1024 * 1024 * 1024); // 5 GiB
-        assert_eq!(l.max_clients, 50);
-        assert_eq!(l.rate_limit_rpm, 60);
+        // Free edition: every limit defaults to the "0 = unlimited" sentinel.
+        assert_eq!(l.max_sessions, 0);
+        assert_eq!(l.max_streams, 0);
+        assert_eq!(l.max_bytes, 0);
+        assert_eq!(l.ttl_secs, 0);
+        assert_eq!(l.max_tunnels, 0);
+        assert_eq!(l.bandwidth_monthly, 0);
+        assert_eq!(l.max_clients, 0);
+        assert_eq!(l.rate_limit_rpm, 0);
     }
 
     #[test]

@@ -1990,13 +1990,13 @@ fn render_tokens_page(
             <button type="button" class="chip" data-bytes-chip="1099511627776">1 TB</button>
             <button type="button" class="chip" data-bytes-chip="unlimited">Unlimited</button>
           </div>
-          <label class="checkbox-inline"><input type="checkbox" id="max_bytes_unlimited" name="max_bytes_unlimited" value="on"> Unlimited</label>
+          <label class="checkbox-inline"><input type="checkbox" id="max_bytes_unlimited" name="max_bytes_unlimited" value="on" checked> Unlimited</label>
         </div>
         <script>{slider_js}</script>
         <div class="form-group">
           <label for="ttl_secs">TTL (seconds)</label>
-          <input type="number" id="ttl_secs" name="ttl_secs" value="28800" min="1">
-          <label class="checkbox-inline"><input type="checkbox" id="ttl_secs_unlimited" name="ttl_secs_unlimited" value="on" onchange="document.getElementById('ttl_secs').disabled=this.checked"> Unlimited</label>
+          <input type="number" id="ttl_secs" name="ttl_secs" placeholder="∞" min="1">
+          <label class="checkbox-inline"><input type="checkbox" id="ttl_secs_unlimited" name="ttl_secs_unlimited" value="on" checked onchange="document.getElementById('ttl_secs').disabled=this.checked"> Unlimited</label>
         </div>
       </div>
       <button class="create-btn" type="submit">Create Token</button>
