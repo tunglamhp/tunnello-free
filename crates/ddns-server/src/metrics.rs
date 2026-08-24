@@ -45,13 +45,16 @@ static RATELIMIT_429_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
     .expect("ddns_ratelimit_429_total is a valid metric")
 });
 
-/// Tokens debited from account balances (metered usage).
-static TOKENS_DEBITED_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
-    IntCounter::new(
-        "ddns_tokens_debited_total",
-        "Tokens debited from account balances (metered usage).",
-    )
-    .expect("ddns_tokens_debited_total is a valid metric")
+/// Active P2P data channels bridged by the gateway.
+static P2P_CHANNELS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
+    IntGauge::new("ddns_p2p_channels_active", "Active WebRTC P2P data channels.")
+        .expect("ddns_p2p_channels_active is a valid metric")
+});
+
+/// Total P2P tunnel bytes relayed (tx+rx combined).
+static P2P_BYTES_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
+    IntCounter::new("ddns_p2p_bytes_total", "P2P tunnel bytes transferred (both directions).")
+        .expect("ddns_p2p_bytes_total is a valid metric")
 });
 
 /// The single registry every metric above is registered with.
@@ -70,8 +73,11 @@ static REGISTRY: LazyLock<Registry> = LazyLock::new(|| {
         .register(Box::new(RATELIMIT_429_TOTAL.clone()))
         .expect("register ddns_ratelimit_429_total");
     registry
-        .register(Box::new(TOKENS_DEBITED_TOTAL.clone()))
-        .expect("register ddns_tokens_debited_total");
+        .register(Box::new(P2P_CHANNELS_ACTIVE.clone()))
+        .expect("register ddns_p2p_channels_active");
+    registry
+        .register(Box::new(P2P_BYTES_TOTAL.clone()))
+        .expect("register ddns_p2p_bytes_total");
     registry
 });
 
@@ -93,10 +99,6 @@ pub fn active_sessions() -> &'static IntGauge {
 
 pub fn ratelimit_429_total() -> &'static IntCounter {
     &RATELIMIT_429_TOTAL
-}
-
-pub fn tokens_debited_total() -> &'static IntCounter {
-    &TOKENS_DEBITED_TOTAL
 }
 
 /// Render the current metric values in the Prometheus text exposition format.
