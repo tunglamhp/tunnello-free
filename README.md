@@ -61,6 +61,13 @@ visitor ──https──▶ Tunello broker ◀──wss── ddns-client ─�
 | `crates/ddns-proto` | Wire protocol (control frames, stream framing, kill reasons) |
 | `crates/ddns-echo` | Tiny local echo app used by the demo |
 
+
+## Client install guide (Windows / Linux / macOS)
+
+See [docs/CLIENT-GUIDE.md](docs/CLIENT-GUIDE.md) for per-platform install,
+auto-start (systemd / launchd / Task Scheduler), P2P quick connect and
+troubleshooting.
+
 ## Quick start — local demo
 
 One script runs the whole stack locally (dev self-signed cert, operator account,
