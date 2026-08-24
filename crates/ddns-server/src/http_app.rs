@@ -270,6 +270,7 @@ pub fn router(state: BrokerState) -> Router {
         .route("/sessions/{slug}/kill", post(session_kill));
 
     Router::new()
+        .route("/health", get(health_check))
         .route("/connect", get(mux::ws_handler))
         .route("/__p2p/signal", get(crate::p2p_signal::signal_handler))
         .route("/__tunnello/sw.js", get(service_worker))
@@ -471,6 +472,23 @@ fn effective_port(scheme: &str, port: Option<u16>) -> Option<u16> {
 /// Serve the Prometheus text exposition of the `ddns_*` metrics. Reached only
 /// through the `operator_private` router (behind `require_session` +
 /// `require_operator`).
+/// GET /health — public liveness/readiness probe (no auth).
+/// Returns broker uptime, active session count, and version.
+async fn health_check(State(state): State<BrokerState>) -> Response {
+    let sessions = state.registry.list().len();
+    let body = serde_json::json!({
+        "status": "ok",
+        "sessions": sessions,
+        "version": env!("CARGO_PKG_VERSION"),
+    });
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
+}
+
 async fn metrics_page() -> Response {
     let body = crate::metrics::render();
     (
