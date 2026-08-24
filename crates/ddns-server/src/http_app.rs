@@ -271,6 +271,7 @@ pub fn router(state: BrokerState) -> Router {
 
     Router::new()
         .route("/health", get(health_check))
+        .route("/api/version", get(api_version))
         .route("/connect", get(mux::ws_handler))
         .route("/__p2p/signal", get(crate::p2p_signal::signal_handler))
         .route("/__tunnello/sw.js", get(service_worker))
@@ -474,6 +475,20 @@ fn effective_port(scheme: &str, port: Option<u16>) -> Option<u16> {
 /// `require_operator`).
 /// GET /health — public liveness/readiness probe (no auth).
 /// Returns broker uptime, active session count, and version.
+/// GET /api/version — public version info for client update checks.
+async fn api_version() -> Response {
+    let body = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "min_client_version": "0.4.0",
+    });
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
+}
+
 async fn health_check(State(state): State<BrokerState>) -> Response {
     let sessions = state.registry.list().len();
     let body = serde_json::json!({
