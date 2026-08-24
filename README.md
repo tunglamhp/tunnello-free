@@ -9,8 +9,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License"/></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-2024-orange?style=for-the-badge&logo=rust&logoColor=white" alt="Rust"/></a>
-  <a href="https://github.com/tunglamhp/tunnello/releases"><img src="https://img.shields.io/github/v/release/tunglamhp/tunnello?style=for-the-badge" alt="Release"/></a>
-  <a href="https://github.com/tunglamhp/tunnello/releases"><img src="https://img.shields.io/github/downloads/tunglamhp/tunnello/total?style=for-the-badge" alt="Downloads"/></a>
+  <a href="https://github.com/tunglamhp/tunnello-free/releases"><img src="https://img.shields.io/github/v/release/tunglamhp/tunnello-free?style=for-the-badge" alt="Release"/></a>
+  <a href="https://github.com/tunglamhp/tunnello-free/releases"><img src="https://img.shields.io/github/downloads/tunglamhp/tunnello-free/total?style=for-the-badge" alt="Downloads"/></a>
 </p>
 
 A tunnel-service SaaS: expose local HTTP/TCP services through a secure WebSocket
@@ -181,6 +181,14 @@ issues a new one.
 
 grace). Effective limits are snapshotted per session — running sessions keep
 their quota until the client reconnects.
+
+## TLS certificates
+
+Automatic Let's Encrypt via **TLS-ALPN-01** on port 443 (works out of the box).
+
+> **Note:** DNS-01 validation is not yet automated — the `--acme-provider`
+> selection is recorded but issuance always uses TLS-ALPN-01. Wildcard
+> certificates therefore require manual provisioning for now.
 
 ## Development
 
