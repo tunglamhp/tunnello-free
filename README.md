@@ -39,6 +39,10 @@ visitor ──https──▶ Tunello broker ◀──wss── ddns-client ─�
   failover with Porkbun DDNS.
 
 <p align="center">
+  <img src="docs/shots/demo-free.gif" alt="Tunello Free — operator dashboard walkthrough" width="98%">
+</p>
+
+<p align="center">
   <img src="docs/shots/tokens.png" alt="Operator dashboard — tokens" width="49%">
   <img src="docs/shots/dashboard.png" alt="Live dashboard" width="49%">
 </p>
