@@ -38,6 +38,16 @@ visitor ──https──▶ Tunello broker ◀──wss── ddns-client ─�
 - **Single-command VPS deployment** — Docker Compose + one-click scripts, home/VPS
   failover with Porkbun DDNS.
 
+<p align="center">
+  <img src="docs/shots/tokens.png" alt="Operator dashboard — tokens" width="49%">
+  <img src="docs/shots/dashboard.png" alt="Live dashboard" width="49%">
+</p>
+<p align="center">
+  <img src="docs/shots/tunnels.png" alt="Tunnels" width="32%">
+  <img src="docs/shots/domains.png" alt="Custom domains" width="32%">
+  <img src="docs/shots/settings.png" alt="Settings" width="32%">
+</p>
+
 ## Repository layout
 
 | Crate | Role |
