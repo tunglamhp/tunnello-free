@@ -34,6 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           V="${GITHUB_REF_NAME#v}"
+          V="${V%-free}"   # free-edition tags carry a -free suffix
           CARGO_V="$(grep -m1 '^version' Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')"
           if [ "$CARGO_V" != "$V" ]; then
             echo "version mismatch: tag=$V workspace=$CARGO_V" >&2
