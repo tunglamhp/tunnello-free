@@ -416,6 +416,9 @@ async fn serve_inner(
         bytes_tx: 0,
         bytes_rx: 0,
         peer_ip: debug_peer,
+        req_headers: Vec::new(),
+        req_body: None,
+        resp_body: None,
     });
     resp
 }

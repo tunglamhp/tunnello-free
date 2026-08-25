@@ -260,3 +260,9 @@ fn otp_gate_redirects_without_cookie() {
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     assert!(format!("{:?}", resp.headers().get("location")).contains("/__auth/otp"));
 }
+
+#[test]
+fn debug_capture_defaults_off() {
+    let opts: HttpOptions = serde_json::from_str("{}").unwrap();
+    assert!(!opts.debug_capture, "absent debug_capture must parse as false");
+}

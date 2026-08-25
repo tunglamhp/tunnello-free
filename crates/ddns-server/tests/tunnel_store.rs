@@ -193,6 +193,7 @@ async fn options_json_round_trip() {
         pass_preflight: true,
         oidc_auth: true,
         email_otp: true,
+        debug_capture: true,
     };
     let json = serde_json::to_string(&opts).unwrap();
     let back: HttpOptions = serde_json::from_str(&json).unwrap();
@@ -206,6 +207,7 @@ async fn options_json_round_trip() {
     assert!(empty.pin_auth.is_none());
     assert!(!empty.oidc_auth);
     assert!(!empty.email_otp);
+    assert!(!empty.debug_capture, "capture defaults off");
 }
 
 #[tokio::test]

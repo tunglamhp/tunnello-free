@@ -54,6 +54,12 @@ pub struct DebugEntry {
     pub bytes_tx: u64,
     pub bytes_rx: u64,
     pub peer_ip: String,
+    /// Redacted request headers (capture mode only; empty otherwise).
+    pub req_headers: Vec<(String, String)>,
+    /// Request body preview (4 KiB max; None when capture off / no body).
+    pub req_body: Option<String>,
+    /// Response body preview (4 KiB max; None when capture off).
+    pub resp_body: Option<String>,
 }
 
 const DEBUG_RING_CAP: usize = 100;

@@ -32,6 +32,10 @@ pub struct HttpOptions {
     pub oidc_auth: bool,
     #[serde(default)]
     pub email_otp: bool,
+    /// Deep debugger: capture request/response bodies (4 KiB, redacted
+    /// headers) for the operator debug page. Privacy-sensitive — default off.
+    #[serde(default)]
+    pub debug_capture: bool,
     #[serde(default)]
     pub ip_whitelist: Vec<String>,
     #[serde(default)]
@@ -55,6 +59,7 @@ impl Default for HttpOptions {
             pin_auth: None,
             oidc_auth: false,
             email_otp: false,
+            debug_capture: false,
             ip_whitelist: Vec::new(),
             https_only: false,
             host_rewrite: None,
