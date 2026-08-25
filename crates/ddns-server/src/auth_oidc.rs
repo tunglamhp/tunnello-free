@@ -151,7 +151,10 @@ mod tests {
     fn pkce_pair_is_url_safe_and_challenge_matches() {
         let (v, c) = pkce_pair();
         assert!((43..=128).contains(&v.len()));
-        assert!(v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+        assert!(
+            v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        );
         let expect = URL_SAFE_NO_PAD.encode(Sha256::digest(v.as_bytes()));
         assert_eq!(c, expect);
     }

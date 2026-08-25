@@ -59,7 +59,10 @@ mod tests {
     fn cookie_roundtrip_and_expiry() {
         let secret = vec![b'k'; 32];
         let c = VisitorAuthCookie::issue(&secret, "a@b.c", 3600);
-        assert_eq!(VisitorAuthCookie::verify(&c, &secret).as_deref(), Some("a@b.c"));
+        assert_eq!(
+            VisitorAuthCookie::verify(&c, &secret).as_deref(),
+            Some("a@b.c")
+        );
         let expired = VisitorAuthCookie::issue(&secret, "a@b.c", 0);
         assert_eq!(VisitorAuthCookie::verify(&expired, &secret), None);
         assert_eq!(VisitorAuthCookie::verify(&c, b"other"), None);

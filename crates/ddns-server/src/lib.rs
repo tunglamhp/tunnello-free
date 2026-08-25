@@ -8,6 +8,8 @@
 pub mod account;
 pub mod audit;
 pub mod auth;
+pub mod auth_oidc;
+pub mod auth_otp;
 pub mod config;
 pub mod connector;
 pub mod domain;
@@ -34,11 +36,9 @@ pub mod tcp_bridge;
 pub mod tls;
 pub mod token;
 pub mod tunnel;
-pub mod auth_oidc;
-pub mod auth_otp;
-pub mod visitor_auth;
 pub mod udp_bridge;
 pub mod ui;
+pub mod visitor_auth;
 
 /// Current unix epoch (seconds) — shared clock for tests and rate limiting.
 pub fn now_secs() -> i64 {
@@ -108,6 +108,8 @@ pub struct Broker {
     /// operators/tests can seed HTTP-01 challenges and read cert status.
     pub challenge_store: Option<Arc<ChallengeStore>>,
     registry: Arc<Registry>,
+    /// Visitor OTP store (test accessor target).
+    otp: std::sync::Arc<crate::auth_otp::OtpStore>,
     handle: JoinHandle<()>,
     drain_tx: watch::Sender<bool>,
     _http_handle: Option<JoinHandle<()>>,
@@ -195,6 +197,13 @@ impl Broker {
     /// bound. It serves 301 redirects to HTTPS and ACME HTTP-01 challenge
     /// responses. Both listeners are bound BEFORE the ACME state machine is
     /// spawned, so a bind failure cannot leak a detached ACME task.
+    /// Test-only access to the visitor OTP store (integration tests install
+    /// a code sink to capture dev-mode codes).
+    #[doc(hidden)]
+    pub fn otp_store(&self) -> &crate::auth_otp::OtpStore {
+        &self.otp
+    }
+
     pub async fn start(config: BrokerConfig) -> Result<Broker, ServerError> {
         config.validate().map_err(ServerError::Config)?;
 
@@ -273,6 +282,11 @@ impl Broker {
             crate::ui::set_branding(&s.instance_name, &s.support_url);
         }
         crate::ui::set_bundle_script(&crate::ui::discover_bundle_script(&config.web_dist));
+        let otp_store = std::sync::Arc::new(crate::auth_otp::OtpStore::new());
+        let oidc_client = config
+            .oidc
+            .as_ref()
+            .map(|_| std::sync::Arc::new(crate::auth_oidc::OidcClient::new()));
         let state = BrokerState::new(
             Arc::new(config.clone()),
             registry.clone(),
@@ -297,6 +311,8 @@ impl Broker {
             quota,
             audit,
             setup,
+            otp_store.clone(),
+            oidc_client,
         );
         let app = http_app::router(state.clone());
         // Public UDP tunnel listener (disabled when --udp-port is 0/absent).
@@ -324,6 +340,7 @@ impl Broker {
             stun_addr,
             challenge_store,
             registry,
+            otp: otp_store,
             handle,
             drain_tx,
             _http_handle: http_handle,

@@ -86,6 +86,7 @@ pub fn broker_config(
         udp_port: 0,
         udp_target_port: 0,
         udp_routes: Vec::new(),
+        oidc: None,
         tls_cert_pem: cert.to_vec(),
         tls_key_pem: key.to_vec(),
         token_store: tokens,

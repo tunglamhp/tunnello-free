@@ -3,13 +3,14 @@ use std::sync::{Arc, RwLock};
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{ConnectInfo, Form, Path, Query, State};
 use axum::http::header;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use dashmap::DashMap;
+use std::collections::HashMap;
 use tokio::sync::watch;
 
 use crate::account;
@@ -111,6 +112,10 @@ pub struct BrokerState {
     /// Fixed-minute rate limiter over the tunnel traffic path (None → no
     /// limiting). Built from `hot`; Redis is the only rate-limit hot path.
     pub quota: Option<crate::quota::RateLimiter>,
+    /// Visitor email-OTP store (in-memory; codes die with the process).
+    pub otp: std::sync::Arc<crate::auth_otp::OtpStore>,
+    /// Generic OIDC client (None → `/__auth/oidc/*` answers 503).
+    pub oidc: Option<std::sync::Arc<crate::auth_oidc::OidcClient>>,
     /// Operator activity audit log (operations + logins).
     pub audit: crate::audit::AuditStore,
     /// One-time client setup codes (download-my-client auto-connect).
@@ -137,6 +142,8 @@ impl BrokerState {
         quota: Option<crate::quota::RateLimiter>,
         audit: crate::audit::AuditStore,
         setup: crate::setup::SetupStore,
+        otp: std::sync::Arc<crate::auth_otp::OtpStore>,
+        oidc: Option<std::sync::Arc<crate::auth_oidc::OidcClient>>,
     ) -> Self {
         Self {
             config,
@@ -158,6 +165,8 @@ impl BrokerState {
             quota,
             audit,
             setup,
+            otp,
+            oidc,
         }
     }
 
@@ -274,6 +283,11 @@ pub fn router(state: BrokerState) -> Router {
 
     Router::new()
         .route("/health", get(health_check))
+        .route("/__auth/oidc/start", get(oidc_start))
+        .route("/__auth/oidc/cb", get(oidc_cb))
+        .route("/__auth/otp", get(otp_form))
+        .route("/__auth/otp/send", post(otp_send))
+        .route("/__auth/otp/verify", post(otp_verify))
         .route("/api/version", get(api_version))
         .route("/connect", get(mux::ws_handler))
         .route("/__p2p/signal", get(crate::p2p_signal::signal_handler))
@@ -927,6 +941,294 @@ async fn policies_delete(State(state): State<BrokerState>, Path(id): Path<String
     }
 }
 
+// ---------------------------------------------------------------------------
+// visitor auth: OIDC + email OTP (public routes; spec 2026-08-26 Phase 1)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct AuthQuery {
+    back: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct OtpForm {
+    email: String,
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    back: String,
+}
+
+fn server_secret(
+    state: &BrokerState,
+) -> impl std::future::Future<Output = Result<Vec<u8>, crate::token::StoreError>> + '_ {
+    state.config.token_store.server_secret()
+}
+
+fn append_cookie(resp: &mut axum::response::Response, cookie: &str, dev: bool) {
+    let mut v = cookie.to_string();
+    if !dev {
+        v.push_str("; Secure");
+    }
+    if let Ok(hv) = axum::http::HeaderValue::from_str(&v) {
+        resp.headers_mut()
+            .append(axum::http::header::SET_COOKIE, hv);
+    }
+}
+
+fn err_page(msg: &str) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        [("content-type", "text/html; charset=utf-8")],
+        format!(
+            "<!DOCTYPE html><html><body style=\"font-family:system-ui\">\
+             <h2>Sign-in failed</h2><p>{msg}</p>\
+             <p><a href=\"/\">Back</a></p></body></html>"
+        ),
+    )
+        .into_response()
+}
+
+/// OIDC step 1: stash state+verifier in a short signed cookie, bounce to the
+/// provider's authorization endpoint.
+async fn oidc_start(State(state): State<BrokerState>, Query(q): Query<AuthQuery>) -> Response {
+    let Some(oidc) = &state.oidc else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OIDC not configured on this broker",
+        )
+            .into_response();
+    };
+    let Some(cfg) = &state.config.oidc else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OIDC not configured on this broker",
+        )
+            .into_response();
+    };
+    let back = crate::visitor_auth::safe_back(q.back.as_deref());
+    let (verifier, challenge) = crate::auth_oidc::pkce_pair();
+    let oauth_state = format!("{:016x}", rand::Rng::random::<u64>(&mut rand::rng()));
+    let d = match oidc.discover(cfg).await {
+        Ok(d) => d,
+        Err(e) => return err_page(&e),
+    };
+    let redirect_uri = format!(
+        "{}/__auth/oidc/cb",
+        state.config.base_url.trim_end_matches('/')
+    );
+    let loc = format!(
+        "{}?response_type=code&client_id={}&redirect_uri={}&scope=openid%20email&state={oauth_state}&code_challenge={challenge}&code_challenge_method=S256",
+        d.authorization_endpoint,
+        urlencode(&cfg.client_id),
+        urlencode(&redirect_uri),
+    );
+    let secret = match server_secret(&state).await {
+        Ok(s) => s,
+        Err(e) => return err_page(&e.to_string()),
+    };
+    // Signed stash cookie: payload "oauth|{state}|{verifier}" rides the email
+    // field of VisitorAuthCookie (opaque to the visitor, HMAC-checked on cb).
+    let tmp = crate::visitor_auth::VisitorAuthCookie::issue(
+        &secret,
+        &format!("oauth|{oauth_state}|{verifier}"),
+        600,
+    );
+    let dev = state.config.dev;
+    let mut resp = axum::response::Redirect::to(&loc).into_response();
+    append_cookie(
+        &mut resp,
+        &format!("tnl_oauth={tmp}; Path=/; HttpOnly; SameSite=Lax"),
+        dev,
+    );
+    append_cookie(
+        &mut resp,
+        &format!("tnl_back={back}; Path=/; HttpOnly; SameSite=Lax"),
+        dev,
+    );
+    resp
+}
+
+/// OIDC step 2: verify state, exchange the code, mint the 12 h auth cookie.
+async fn oidc_cb(
+    State(state): State<BrokerState>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let Some(oidc) = &state.oidc else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "OIDC not configured").into_response();
+    };
+    let Some(cfg) = &state.config.oidc else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "OIDC not configured").into_response();
+    };
+    let secret = match server_secret(&state).await {
+        Ok(s) => s,
+        Err(e) => return err_page(&e.to_string()),
+    };
+    let cookie_of = |prefix: &str| {
+        headers
+            .get_all(axum::http::header::COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|c| c.split(';'))
+            .find_map(|p| p.trim().strip_prefix(prefix))
+            .map(str::to_string)
+    };
+    let Some(stash) = cookie_of("tnl_oauth=")
+        .as_deref()
+        .and_then(|v| crate::visitor_auth::VisitorAuthCookie::verify(v, &secret))
+    else {
+        return err_page("expired sign-in attempt; try again");
+    };
+    let Some(rest) = stash.strip_prefix("oauth|") else {
+        return err_page("bad sign-in state");
+    };
+    let Some((oauth_state, verifier)) = rest.split_once('|') else {
+        return err_page("bad sign-in state");
+    };
+    if q.get("state").map(String::as_str) != Some(oauth_state) {
+        tracing::warn!("oidc state mismatch");
+        return err_page("state mismatch; try again");
+    }
+    let Some(code) = q.get("code") else {
+        return err_page("missing code");
+    };
+    let redirect_uri = format!(
+        "{}/__auth/oidc/cb",
+        state.config.base_url.trim_end_matches('/')
+    );
+    let id_token = match oidc.exchange(cfg, code, verifier, &redirect_uri).await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %e, "oidc token exchange failed");
+            return err_page("token exchange failed; try again");
+        }
+    };
+    let Some(email) = crate::auth_oidc::email_from_id_token(&id_token) else {
+        return err_page("provider did not return an email claim");
+    };
+    let back = cookie_of("tnl_back=").unwrap_or_else(|| "/".into());
+    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600);
+    let dev = state.config.dev;
+    let mut resp =
+        axum::response::Redirect::to(&crate::visitor_auth::safe_back(Some(&back))).into_response();
+    append_cookie(
+        &mut resp,
+        &format!("tnl_auth={auth}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200"),
+        dev,
+    );
+    append_cookie(
+        &mut resp,
+        "tnl_oauth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+        dev,
+    );
+    append_cookie(
+        &mut resp,
+        "tnl_back=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+        dev,
+    );
+    resp
+}
+
+fn urlencode(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// OTP entry form (email + hidden back target).
+async fn otp_form(Query(q): Query<AuthQuery>) -> Response {
+    let back = crate::visitor_auth::safe_back(q.back.as_deref());
+    let html = format!(
+        "<!DOCTYPE html><html><head><title>Sign in</title>\
+         <style>body{{font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#f5f5f5}}\
+         form{{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}}\
+         input{{padding:.5rem;font-size:1rem;border:1px solid #ccc;border-radius:4px;margin:.25rem 0;width:16rem}}\
+         button{{padding:.5rem 1rem;background:#2563eb;color:#fff;border:0;border-radius:4px;cursor:pointer}}</style>\
+         </head><body><form method=\"post\" action=\"/__auth/otp/send\">\
+         <h2>Lock Email sign-in</h2>\
+         <p>Enter your email to receive an access code.</p>\
+         <input type=\"hidden\" name=\"back\" value=\"{back}\">\
+         <input type=\"email\" name=\"email\" placeholder=\"you@example.com\" required autofocus>\
+         <button type=\"submit\">Send code</button></form></body></html>"
+    );
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        html,
+    )
+        .into_response()
+}
+
+async fn otp_send(State(state): State<BrokerState>, Form(f): Form<OtpForm>) -> Response {
+    let email = f.email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return err_page("enter a valid email address");
+    }
+    let code = match state.otp.generate(&email) {
+        Ok(c) => c,
+        Err(e) => return err_page(&e),
+    };
+    let mailer = state.mailer.clone();
+    let dev = state.config.dev;
+    let body = format!("Your access code is {code} (valid 5 minutes)");
+    // Never leak whether the email exists; only surface config errors.
+    if let Err(e) =
+        crate::mailer::deliver(&mailer, dev, &email, "Your access code", &body, &body).await
+        && e.contains("SMTP not configured")
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "email OTP not configured on this broker",
+        )
+            .into_response();
+    }
+    let back = crate::visitor_auth::safe_back(Some(&f.back));
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        format!(
+            "<!DOCTYPE html><html><body style=\"font-family:system-ui\">\
+             <h2>Code sent</h2><p>Check {email} for your 6-digit code.</p>\
+             <form method=\"post\" action=\"/__auth/otp/verify\">\
+             <input type=\"hidden\" name=\"email\" value=\"{email}\">\
+             <input type=\"hidden\" name=\"back\" value=\"{back}\">\
+             <input name=\"code\" placeholder=\"123456\" required autofocus>\
+             <button type=\"submit\">Verify</button></form></body></html>"
+        ),
+    )
+        .into_response()
+}
+
+async fn otp_verify(State(state): State<BrokerState>, Form(f): Form<OtpForm>) -> Response {
+    let email = f.email.trim().to_lowercase();
+    if let Err(e) = state.otp.verify(&email, f.code.trim()) {
+        tracing::debug!(%email, ?e, "otp verify failed");
+        return (StatusCode::UNAUTHORIZED, "invalid or expired code").into_response();
+    }
+    let secret = match server_secret(&state).await {
+        Ok(s) => s,
+        Err(e) => return err_page(&e.to_string()),
+    };
+    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600);
+    let back = crate::visitor_auth::safe_back(Some(&f.back));
+    let dev = state.config.dev;
+    let mut resp = axum::response::Redirect::to(&back).into_response();
+    append_cookie(
+        &mut resp,
+        &format!("tnl_otp={auth}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200"),
+        dev,
+    );
+    resp
+}
+
 /// Live request debugger for one tunnel (last 100 requests, metadata only).
 async fn debug_page(State(state): State<BrokerState>, Path(slug): Path<String>) -> Response {
     let Some(session) = state.registry.lookup(&slug) else {
@@ -1448,20 +1750,6 @@ async fn domains_delete(State(state): State<BrokerState>, Path(id): Path<String>
 // ---------------------------------------------------------------------------
 // tunnels pages
 // ---------------------------------------------------------------------------
-
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            b' ' => out.push('+'),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
 
 /// Parse the tunnel-options form group into `HttpOptions`. Checkboxes encode
 /// presence; every field defaults off unless the form states it (API-created

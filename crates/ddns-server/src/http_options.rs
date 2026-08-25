@@ -194,7 +194,10 @@ pub fn apply_with_auth(
         if !ok {
             return Some(match (secret, oidc_ready) {
                 (Some(_), true) => redirect_to_auth("oidc", &current_path(req)),
-                _ => (StatusCode::SERVICE_UNAVAILABLE, "OIDC not configured on this broker")
+                _ => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "OIDC not configured on this broker",
+                )
                     .into_response(),
             });
         }
@@ -268,7 +271,8 @@ fn auth_cookie_ok(req: &Request<Body>, name: &str, secret: &[u8]) -> bool {
         .and_then(|v| v.to_str().ok())
         .and_then(|c| {
             let prefix = format!("{name}=");
-            c.split(';').find_map(|p| p.trim().strip_prefix(prefix.as_str()))
+            c.split(';')
+                .find_map(|p| p.trim().strip_prefix(prefix.as_str()))
         })
         .and_then(|v| crate::visitor_auth::VisitorAuthCookie::verify(v, secret))
         .is_some()

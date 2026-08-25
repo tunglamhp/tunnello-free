@@ -177,6 +177,11 @@ pub fn is_public_path(path: &str) -> bool {
             | "/portal/verify"
             | "/__p2p/signal"
             | "/__tunnello/sw.js"
+            | "/__auth/oidc/start"
+            | "/__auth/oidc/cb"
+            | "/__auth/otp"
+            | "/__auth/otp/send"
+            | "/__auth/otp/verify"
     ) || path.starts_with("/t/")
         || path.starts_with("/download/")
         || path.starts_with("/_assets/")
