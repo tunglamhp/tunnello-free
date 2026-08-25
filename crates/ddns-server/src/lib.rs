@@ -34,6 +34,7 @@ pub mod tcp_bridge;
 pub mod tls;
 pub mod token;
 pub mod tunnel;
+pub mod visitor_auth;
 pub mod udp_bridge;
 pub mod ui;
 
