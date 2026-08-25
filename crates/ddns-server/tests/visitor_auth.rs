@@ -3,7 +3,6 @@
 
 mod common;
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use tokio::time::timeout;
@@ -13,7 +12,6 @@ use ddns_server::TokenStore;
 /// Minimal HTTPS GET/POST helpers (mirror tests/p2p_signaling.rs client).
 mod https {
     use std::collections::HashMap;
-    use std::sync::Arc;
 
     pub fn client_tls(cert_pem: &[u8]) -> rustls::ClientConfig {
         let mut root_store = rustls::RootCertStore::empty();
