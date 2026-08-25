@@ -109,6 +109,15 @@ async fn serve_inner(
     peer: SocketAddr,
     stream_id: u32,
 ) -> Response {
+    let debug_started = std::time::Instant::now();
+    let debug_method = req.method().as_str().to_string();
+    let debug_path = req
+        .uri()
+        .path_and_query()
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let debug_peer = peer.ip().to_string();
+
     // --- OPEN: request head --------------------------------------------------
     // Serialize the request head (hop-by-hop headers stripped; canonical Host
     // and X-Forwarded-For set) for the client to forward verbatim.
@@ -394,6 +403,19 @@ async fn serve_inner(
         let _ = forward.await;
         session4.streams.remove(&stream_id);
         session4.release_stream();
+    });
+    session.record_debug(crate::session::DebugEntry {
+        at_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        method: debug_method,
+        path: debug_path,
+        status: resp.status().as_u16(),
+        duration_ms: debug_started.elapsed().as_millis() as u64,
+        bytes_tx: 0,
+        bytes_rx: 0,
+        peer_ip: debug_peer,
     });
     resp
 }

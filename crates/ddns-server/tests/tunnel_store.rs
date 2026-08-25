@@ -318,3 +318,38 @@ async fn list_for_account_scopes_to_owner() {
         .unwrap();
     assert_eq!(store.list_for_account(a1.id).await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn policy_upsert_list_delete_round_trip() {
+    let (_ts, _dom, store, _tid, _did, _apex) = setup().await;
+
+    // Create
+    let id1 = store
+        .save_policy("locked-down", r#"{"pin_auth":"1234"}"#)
+        .await
+        .unwrap();
+    assert!(id1.starts_with("p-"));
+
+    // Upsert by same name replaces options, keeps one row
+    let id2 = store
+        .save_policy("locked-down", r#"{"pin_auth":"9999"}"#)
+        .await
+        .unwrap();
+    let list = store.list_policies().await.unwrap();
+    assert_eq!(list.len(), 1, "upsert must not duplicate rows");
+    assert_eq!(id2, id1, "same name must keep the same id");
+    assert!(list[0].2.contains("9999"));
+
+    // Second policy sorts by name
+    store.save_policy("open", "{}").await.unwrap();
+    let list = store.list_policies().await.unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].1, "locked-down");
+    assert_eq!(list[1].1, "open");
+
+    // Delete
+    store.delete_policy(&id1).await.unwrap();
+    let list = store.list_policies().await.unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].1, "open");
+}

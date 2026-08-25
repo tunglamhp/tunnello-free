@@ -579,3 +579,74 @@ fn random_slug() -> String {
         .encode(buf)
         .to_lowercase()
 }
+
+impl TunnelStore {
+    /// Save a named policy (upsert by name). Returns the policy id.
+    pub async fn save_policy(&self, name: &str, options_json: &str) -> Result<String, StoreError> {
+        let store = self.store.clone();
+        let name = name.to_string();
+        let options_json = options_json.to_string();
+        tokio::task::spawn_blocking(move || {
+            let guard = store.db_conn().lock().unwrap_or_else(|p| p.into_inner());
+            let now = now_unix();
+            guard.execute(
+                "INSERT INTO policies (id, name, options, created_at) \
+                 VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT(name) DO UPDATE SET options=excluded.options",
+                params![format!("p-{}", random_slug()), name, options_json, now],
+            )?;
+            let id: String = guard
+                .query_row(
+                    "SELECT id FROM policies WHERE name=?1",
+                    params![name],
+                    |r| r.get(0),
+                )
+                .map_err(StoreError::Sqlite)?;
+            Ok(id)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// List all policies as (id, name, options_json).
+    pub async fn list_policies(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        let store = self.store.clone();
+        tokio::task::spawn_blocking(move || {
+            let guard = store.db_conn().lock().unwrap_or_else(|p| p.into_inner());
+            let mut stmt = guard
+                .prepare("SELECT id, name, options FROM policies ORDER BY name")
+                .map_err(StoreError::Sqlite)?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(StoreError::Sqlite)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row.map_err(StoreError::Sqlite)?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+
+    /// Delete a policy by id.
+    pub async fn delete_policy(&self, id: &str) -> Result<(), StoreError> {
+        let store = self.store.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let guard = store.db_conn().lock().unwrap_or_else(|p| p.into_inner());
+            guard
+                .execute("DELETE FROM policies WHERE id=?1", params![id])
+                .map_err(StoreError::Sqlite)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Join(e.to_string()))?
+    }
+}

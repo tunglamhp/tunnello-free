@@ -158,3 +158,26 @@ Other per-tunnel protections available in Options:
 | Add/remove headers | Rewrite request headers before forwarding |
 
 All options compose: e.g. IP whitelist **and** PIN gives two independent gates.
+
+---
+
+## Live request debugger
+
+Every tunnel has a live request log (last 100 requests, metadata only — never
+bodies). Open it from the dashboard session table → **Debug**, or directly at
+`/debug/<slug>` while logged in as operator.
+
+Shows: time, method, path, status, duration, peer IP.
+
+---
+
+## Resource Policies (option presets)
+
+Save a tunnel's HTTP options as a named preset and reuse it:
+
+1. Dashboard → **Policies** → enter a name + options JSON
+   (e.g. `{"pin_auth":"1234","ip_whitelist":["10.0.0.0/8"]}`).
+2. Apply the same JSON to any tunnel's Options form.
+
+Policies are stored in the broker database and audited (`policy.save`,
+`policy.delete` in the Activity log).

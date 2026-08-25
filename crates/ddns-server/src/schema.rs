@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS tunnels(
 
 
 
+CREATE TABLE IF NOT EXISTS policies(
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  options TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit_log(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   actor_type TEXT NOT NULL,          -- operator | client | system

@@ -687,6 +687,7 @@ pub enum NavItem {
     Domains,
     Tokens,
     Analytics,
+    Policies,
 
     Audit,
     Settings,
@@ -701,6 +702,7 @@ impl NavItem {
             Self::Domains => "/domains",
             Self::Tokens => "/tokens",
             Self::Analytics => "/analytics",
+            Self::Policies => "/policies",
             Self::Audit => "/audit",
             Self::Settings => "/settings",
             Self::None => "",
@@ -714,6 +716,7 @@ impl NavItem {
             Self::Domains => "Domains",
             Self::Tokens => "Tokens",
             Self::Analytics => "Analytics",
+            Self::Policies => "Policies",
             Self::Audit => "Activity",
             Self::Settings => "Settings",
             Self::None => "",
@@ -798,7 +801,7 @@ fn activity_block(active: NavItem) -> String {
         NavItem::Domains => &["domain."],
         NavItem::Tokens => &["token."],
         NavItem::Settings => &["settings."],
-        NavItem::Dashboard | NavItem::Analytics => &[],
+        NavItem::Dashboard | NavItem::Analytics | NavItem::Policies => &[],
         NavItem::Audit | NavItem::None => return String::new(),
     };
     let Some(audit) = AUDIT.get() else {
@@ -834,7 +837,12 @@ pub fn page_shell(title: &str, active: NavItem, body: &str) -> String {
         ("Overview", &[NavItem::Dashboard]),
         (
             "Routing",
-            &[NavItem::Tunnels, NavItem::Domains, NavItem::Tokens],
+            &[
+                NavItem::Tunnels,
+                NavItem::Domains,
+                NavItem::Tokens,
+                NavItem::Policies,
+            ],
         ),
         ("Operations", &[NavItem::Analytics, NavItem::Audit]),
         ("Account", &[NavItem::Settings]),

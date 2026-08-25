@@ -267,7 +267,10 @@ pub fn router(state: BrokerState) -> Router {
         .route("/settings/instance", post(settings_instance_submit))
         .route("/audit", get(audit_page))
         .route("/api/cert", get(api_cert))
-        .route("/sessions/{slug}/kill", post(session_kill));
+        .route("/sessions/{slug}/kill", post(session_kill))
+        .route("/debug/{slug}", get(debug_page))
+        .route("/policies", get(policies_page).post(policies_submit))
+        .route("/policies/{id}/delete", post(policies_delete));
 
     Router::new()
         .route("/health", get(health_check))
@@ -845,6 +848,136 @@ async fn session_kill(State(state): State<BrokerState>, Path(slug): Path<String>
         session.kill(KillReason::Admin);
     }
     crate::ui::flash_redirect("/", crate::ui::FlashKind::Success, "Session killed")
+}
+
+/// Named option presets ("resource policies") — list + create form.
+async fn policies_page(State(state): State<BrokerState>) -> Response {
+    let policies = state.tunnels.list_policies().await.unwrap_or_default();
+    let mut rows = String::new();
+    for (id, name, options_json) in &policies {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td><code>{}</code></td>\
+             <td><form method=\"post\" action=\"/policies/{}/delete\">\
+             <button class=\"btn danger\">Delete</button></form></td></tr>",
+            html_escape(name),
+            html_escape(options_json),
+            id,
+        ));
+    }
+    if rows.is_empty() {
+        rows = "<tr><td colspan=\"3\">No policies yet.</td></tr>".into();
+    }
+    let body = format!(
+        "<div class=\"box\"><h2>Create / update policy</h2>\
+         <form method=\"post\" action=\"/policies\" class=\"inline-form\">\
+         <input name=\"name\" placeholder=\"policy name\" required>\
+         <input name=\"options_json\" placeholder='{{\"pin_auth\":\"1234\"}}' required>\
+         <button class=\"btn\" type=\"submit\">Save</button></form></div>\
+         <div class=\"box\"><h2>Existing policies</h2>\
+         <table><thead><tr><th>Name</th><th>Options JSON</th><th></th></tr></thead>\
+         <tbody>{}</tbody></table></div>",
+        rows,
+    );
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        crate::ui::page_shell("Policies", crate::ui::NavItem::Policies, &body),
+    )
+        .into_response()
+}
+
+async fn policies_submit(State(state): State<BrokerState>, body: String) -> Response {
+    let name = form_field(&body, "name");
+    let options_json = form_field(&body, "options_json");
+    if name.is_empty() || options_json.is_empty() {
+        return crate::ui::flash_redirect(
+            "/policies",
+            crate::ui::FlashKind::Error,
+            "Name and options JSON are required",
+        );
+    }
+    // Validate the JSON is a parseable HttpOptions
+    if serde_json::from_str::<serde_json::Value>(&options_json).is_err() {
+        return crate::ui::flash_redirect("/policies", crate::ui::FlashKind::Error, "Invalid JSON");
+    }
+    match state.tunnels.save_policy(&name, &options_json).await {
+        Ok(_) => {
+            state.audit.record("operator", "-", "policy.save", &name);
+            crate::ui::flash_redirect("/policies", crate::ui::FlashKind::Success, "Policy saved")
+        }
+        Err(e) => crate::ui::flash_redirect(
+            "/policies",
+            crate::ui::FlashKind::Error,
+            &format!("Save failed: {e}"),
+        ),
+    }
+}
+
+async fn policies_delete(State(state): State<BrokerState>, Path(id): Path<String>) -> Response {
+    match state.tunnels.delete_policy(&id).await {
+        Ok(_) => {
+            state.audit.record("operator", "-", "policy.delete", &id);
+            crate::ui::flash_redirect("/policies", crate::ui::FlashKind::Success, "Policy deleted")
+        }
+        Err(e) => crate::ui::flash_redirect(
+            "/policies",
+            crate::ui::FlashKind::Error,
+            &format!("Delete failed: {e}"),
+        ),
+    }
+}
+
+/// Live request debugger for one tunnel (last 100 requests, metadata only).
+async fn debug_page(State(state): State<BrokerState>, Path(slug): Path<String>) -> Response {
+    let Some(session) = state.registry.lookup(&slug) else {
+        return crate::ui::flash_redirect("/", crate::ui::FlashKind::Error, "Session not found");
+    };
+    let entries = session.debug_snapshot();
+    let mut rows = String::new();
+    for e in entries.iter().rev() {
+        let status_class = match e.status {
+            200..=299 => "ok",
+            400..=499 => "warn",
+            _ => "err",
+        };
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td class=\"st {}\">{}</td>\
+             <td>{}ms</td><td>{} B ↑ / {} B ↓</td><td>{}</td></tr>",
+            e.at_unix,
+            e.method,
+            html_escape(&e.path),
+            status_class,
+            e.status,
+            e.duration_ms,
+            e.bytes_tx,
+            e.bytes_rx,
+            html_escape(&e.peer_ip),
+        ));
+    }
+    if rows.is_empty() {
+        rows = "<tr><td colspan=\"8\">No requests recorded yet.</td></tr>".into();
+    }
+    let html = format!(
+        "<!DOCTYPE html><html><head><title>Debug {slug}</title><style>\
+         body{{font-family:system-ui;margin:2rem;background:#0f172a;color:#e2e8f0}}\
+         table{{border-collapse:collapse;width:100%}}\
+         th,td{{padding:.5rem .75rem;border-bottom:1px solid #1e293b;text-align:left}}\
+         th{{color:#94a3b8;font-weight:600}}\
+         .st.ok{{color:#4ade80}}.st.warn{{color:#fbbf24}}.st.err{{color:#f87171}}\
+         a{{color:#60a5fa}}</style></head><body>\
+         <h1>🔍 Debug: {slug}</h1>\
+         <p><a href=\"/\">← Dashboard</a> · last {} requests, newest first</p>\
+         <table><tr><th>Time (unix)</th><th>Method</th><th>Path</th><th>Status</th>\
+         <th>Duration</th><th>Bytes</th><th>Peer IP</th></tr>{}</table></body></html>",
+        entries.len(),
+        rows,
+    );
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        html,
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

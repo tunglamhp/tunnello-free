@@ -42,6 +42,22 @@ pub enum EndReason {
     Error(String),
 }
 
+/// One recorded visitor request for the live debugger (metadata only — never
+/// request/response bodies). Bounded ring buffer per session.
+#[derive(Clone, Debug)]
+pub struct DebugEntry {
+    pub at_unix: u64,
+    pub method: String,
+    pub path: String,
+    pub status: u16,
+    pub duration_ms: u64,
+    pub bytes_tx: u64,
+    pub bytes_rx: u64,
+    pub peer_ip: String,
+}
+
+const DEBUG_RING_CAP: usize = 100;
+
 pub struct TunnelSession {
     pub id: String,
     pub token_id: String,
@@ -89,6 +105,8 @@ pub struct TunnelSession {
     /// Random 32-byte secret for this session, delivered to the client in
     /// `registered` and used to sign P2P visitor tickets. Memory-only.
     session_secret: [u8; 32],
+    /// Live debugger ring buffer (last N requests, metadata only).
+    debug_log: std::sync::Mutex<Vec<DebugEntry>>,
 }
 
 impl TunnelSession {
@@ -134,6 +152,7 @@ impl TunnelSession {
             end_reason: std::sync::Mutex::new(None),
             http_options,
             session_secret,
+            debug_log: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -178,6 +197,23 @@ impl TunnelSession {
 
     pub fn record_rx(&self, n: usize) {
         self.bytes_rx.fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    /// Append a request entry to the debugger ring buffer (cap {DEBUG_RING_CAP}).
+    pub fn record_debug(&self, entry: DebugEntry) {
+        let mut log = self.debug_log.lock().unwrap_or_else(|p| p.into_inner());
+        if log.len() >= DEBUG_RING_CAP {
+            log.remove(0);
+        }
+        log.push(entry);
+    }
+
+    /// Snapshot of the debugger log for the dashboard (newest last).
+    pub fn debug_snapshot(&self) -> Vec<DebugEntry> {
+        self.debug_log
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Bytes recorded since the last rollup (tx, rx). Swaps the watermark with
