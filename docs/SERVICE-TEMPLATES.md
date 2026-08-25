@@ -181,3 +181,26 @@ Save a tunnel's HTTP options as a named preset and reuse it:
 
 Policies are stored in the broker database and audited (`policy.save`,
 `policy.delete` in the Activity log).
+
+---
+
+## UDP services (DNS, game servers, WireGuard)
+
+Expose a UDP service (broker needs `--udp-port`, client uses `--udp`):
+
+```sh
+# Broker side (one-time):
+ddns-server --domain <domain> --udp-port 5353
+
+# Client side:
+ddns --token <SECRET> --server https://<broker> --udp 53
+
+# Test with dig (via the P2P helper or direct UDP to the broker):
+dig @<broker-host> -p 5353 example.com
+```
+
+Notes:
+- One UDP "flow" per visitor address; flows idle out after 30 s.
+- Datagrams up to 64 KiB; larger ones are dropped (like real UDP).
+- v1 routes the port to the first live `--udp` client (multi-tenant
+  per-slug UDP routing is future work).

@@ -26,6 +26,8 @@ pub struct Cli {
     pub server: String,
     pub http_target: Option<LocalTarget>,
     pub tcp_target: Option<LocalTarget>,
+    /// Local UDP port forwarded for `--udp` flows (None = UDP disabled).
+    pub udp_target: Option<u16>,
     pub name: Option<String>,
     pub ca_pem: Option<PathBuf>,
     pub heartbeat_interval: Duration,
@@ -67,6 +69,8 @@ Options:
                    (repeatable; one per scheme)
   --name NAME      Friendly name (v1: not transmitted, reserved for future use)
   --ca-pem PATH    Extra CA certificate PEM file for custom TLS roots
+  --udp PORT       Forward UDP datagrams to 127.0.0.1:PORT (requires a
+                   broker started with --udp-port; default: disabled)
   --help           Show this help message";
 
 /// Parse CLI arguments.
@@ -82,6 +86,7 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
     let mut server: Option<String> = None;
     let mut http_target: Option<LocalTarget> = None;
     let mut tcp_target: Option<LocalTarget> = None;
+    let mut udp_target: Option<u16> = None;
     let mut name: Option<String> = None;
     let mut ca_pem: Option<PathBuf> = None;
     let mut i = 0;
@@ -137,6 +142,19 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
                 }
                 tcp_target = Some(LocalTarget::tcp(port));
             }
+            "--udp" => {
+                i += 1;
+                if i >= args.len() {
+                    return require_value();
+                }
+                let port: u16 = args[i]
+                    .parse()
+                    .map_err(|_| format!("invalid port: {}", args[i]))?;
+                if port == 0 {
+                    return Err("invalid port: 0".to_string());
+                }
+                udp_target = Some(port);
+            }
             "--local" => {
                 i += 1;
                 if i >= args.len() {
@@ -146,6 +164,11 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
                 match target.kind {
                     ddns_proto::StreamKind::Http => http_target = Some(target),
                     ddns_proto::StreamKind::Tcp => tcp_target = Some(target),
+                    ddns_proto::StreamKind::Udp => {
+                        return Err(
+                            "--local does not accept UDP targets; use --udp PORT".to_string()
+                        );
+                    }
                 }
             }
             "--name" => {
@@ -181,8 +204,8 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
     }
     let server = server.unwrap_or_else(|| "https://tunnel.example.com".to_string());
 
-    if http_target.is_none() && tcp_target.is_none() {
-        return Err("at least one of --port, --tcp, or --local is required".to_string());
+    if http_target.is_none() && tcp_target.is_none() && udp_target.is_none() {
+        return Err("at least one of --port, --tcp, --udp, or --local is required".to_string());
     }
 
     let heartbeat_interval = match env::var("DDNS_HEARTBEAT_MS") {
@@ -200,6 +223,7 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
         server,
         http_target,
         tcp_target,
+        udp_target,
         name,
         ca_pem,
         heartbeat_interval,

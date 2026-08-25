@@ -34,6 +34,7 @@ pub mod tcp_bridge;
 pub mod tls;
 pub mod token;
 pub mod tunnel;
+pub mod udp_bridge;
 pub mod ui;
 
 /// Current unix epoch (seconds) — shared clock for tests and rate limiting.
@@ -295,6 +296,16 @@ impl Broker {
             setup,
         );
         let app = http_app::router(state.clone());
+        // Public UDP tunnel listener (disabled when --udp-port is 0/absent).
+        if config.udp_port > 0 {
+            let udp_state = state.clone();
+            let udp_port = config.udp_port;
+            tokio::spawn(async move {
+                if let Err(e) = udp_bridge::run(udp_state, udp_port).await {
+                    tracing::warn!(error = %e, "UDP listener exited; UDP tunnels disabled");
+                }
+            });
+        }
         info!(%addr, domain = %config.domain, "ddns broker listening");
         // Global connection cap: bounds memory/fd usage and the amount of
         // concurrent pre-registration argon2 work (register/login are public

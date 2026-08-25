@@ -29,6 +29,7 @@ use crate::connect::{self, ClientWsStream};
 use crate::p2p::P2pGateway;
 use crate::reconnect::SessionEnd;
 use crate::targets::LocalTarget;
+use crate::udp;
 
 /// Per-stream message: Data payload or Close with code.
 #[derive(Debug)]
@@ -96,6 +97,8 @@ pub async fn run_mux(
     subdomain: String,
 ) -> SessionEnd {
     let streams: Arc<DashMap<u32, mpsc::Sender<StreamMsg>>> = Arc::new(DashMap::new());
+    // UDP flows: stream_id → downstream sender (broker UData → local socket).
+    let udp_flows: Arc<DashMap<u32, mpsc::Sender<udp::FlowMsg>>> = Arc::new(DashMap::new());
     // Track per-stream tasks so teardown can abort them (they may be blocked
     // on a keep-alive local socket) before the writer is awaited.
     let mut stream_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
@@ -256,6 +259,7 @@ pub async fn run_mux(
                     let target = match meta.kind {
                         StreamKind::Http => cli.http_target.clone(),
                         StreamKind::Tcp => cli.tcp_target.clone(),
+                        StreamKind::Udp => None, // UDP flows arrive via UOpen
                     };
                     let Some(target) = target else {
                         // No target configured for this kind → OpenReject
@@ -301,6 +305,95 @@ pub async fn run_mux(
                     let code = payload.first().copied().unwrap_or(CLOSE_OK);
                     if let Some((_, s)) = streams.remove(&stream_id) {
                         let _ = s.send(StreamMsg::Close(code)).await;
+                    }
+                }
+                Ok(Frame {
+                    opcode: Opcode::UOpen,
+                    stream_id,
+                    payload: _,
+                }) => {
+                    if udp_flows.contains_key(&stream_id) {
+                        continue;
+                    }
+                    let Some(port) = cli.udp_target else {
+                        tracing::debug!(stream = stream_id, "UOpen without --udp; ignored");
+                        continue;
+                    };
+                    let target = format!("127.0.0.1:{port}");
+                    let Ok(sock) = tokio::net::UdpSocket::bind("127.0.0.1:0").await else {
+                        tracing::warn!(stream = stream_id, "udp bind failed");
+                        continue;
+                    };
+                    if sock.connect(&target).await.is_err() {
+                        tracing::warn!(stream = stream_id, target, "udp connect failed");
+                        continue;
+                    }
+                    let (ftx, mut frx) = mpsc::channel::<udp::FlowMsg>(64);
+                    udp_flows.insert(stream_id, ftx);
+                    let up_tx = tunnel_tx.clone();
+                    let flows_map = udp_flows.clone();
+                    stream_tasks.spawn(async move {
+                        let sock = std::sync::Arc::new(sock);
+                        // Upstream: local socket → broker (UData frames).
+                        let up_sock = sock.clone();
+                        let up = tokio::spawn(async move {
+                            let mut buf = vec![0u8; 65_535];
+                            loop {
+                                match up_sock.recv(&mut buf).await {
+                                    Ok(0) => break,
+                                    Ok(n) => {
+                                        let f = Frame {
+                                            opcode: Opcode::UData,
+                                            stream_id,
+                                            payload: Bytes::copy_from_slice(&buf[..n]),
+                                        };
+                                        let mut out = Vec::with_capacity(9 + n);
+                                        if f.encode(&mut out).is_err() {
+                                            break;
+                                        }
+                                        if up_tx
+                                            .send(Message::Binary(Bytes::from(out)))
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                        });
+                        // Downstream: broker UData frames → local socket.
+                        while let Some(msg) = frx.recv().await {
+                            match msg {
+                                udp::FlowMsg::Data(d) => {
+                                    if sock.send(&d).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                udp::FlowMsg::Close => break,
+                            }
+                        }
+                        up.abort();
+                        flows_map.remove(&stream_id);
+                    });
+                }
+                Ok(Frame {
+                    opcode: Opcode::UData,
+                    stream_id,
+                    payload,
+                }) => {
+                    if let Some(f) = udp_flows.get(&stream_id) {
+                        let _ = f.send(udp::FlowMsg::Data(payload)).await;
+                    }
+                }
+                Ok(Frame {
+                    opcode: Opcode::UClose,
+                    stream_id,
+                    payload: _,
+                }) => {
+                    if let Some((_, f)) = udp_flows.remove(&stream_id) {
+                        let _ = f.send(udp::FlowMsg::Close).await;
                     }
                 }
                 Ok(_) => {

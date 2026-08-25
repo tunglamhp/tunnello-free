@@ -83,6 +83,8 @@ pub fn broker_config(
         listen: "127.0.0.1:0".parse().unwrap(),
         domain: "tunnel.example.com".to_string(),
         public_port: 443,
+        udp_port: 0,
+        udp_target_port: 0,
         tls_cert_pem: cert.to_vec(),
         tls_key_pem: key.to_vec(),
         token_store: tokens,
@@ -98,6 +100,13 @@ pub fn broker_config(
         max_streams_per_session: 512,
         redis_url: None,
     }
+}
+
+#[allow(dead_code)]
+pub async fn start_broker_with_config(config: BrokerConfig) -> (SocketAddr, Broker) {
+    let broker = Broker::start(config).await.unwrap();
+    let addr = broker.addr;
+    (addr, broker)
 }
 
 #[allow(dead_code)]
@@ -163,7 +172,23 @@ impl FakeClient {
         want_tcp: bool,
         want_http: bool,
     ) -> (FakeClient, Control) {
-        let (fc, reply) = Self::connect_raw(addr, cert_pem, token, want_tcp, want_http).await;
+        Self::connect_udp_flags(addr, cert_pem, token, want_tcp, want_http, false, 0).await
+    }
+
+    /// Full-flag register: TCP/HTTP/UDP capability + local UDP target port.
+    pub async fn connect_udp_flags(
+        addr: SocketAddr,
+        cert_pem: &[u8],
+        token: &str,
+        want_tcp: bool,
+        want_http: bool,
+        want_udp: bool,
+        udp_port: u16,
+    ) -> (FakeClient, Control) {
+        let (fc, reply) = Self::connect_raw_udp(
+            addr, cert_pem, token, want_tcp, want_http, want_udp, udp_port,
+        )
+        .await;
         match reply {
             Ok(c) => (fc, c),
             Err(e) => panic!("register failed: {e:?}"),
@@ -178,6 +203,19 @@ impl FakeClient {
         want_tcp: bool,
         want_http: bool,
     ) -> (FakeClient, Result<Control, Control>) {
+        Self::connect_raw_udp(addr, cert_pem, token, want_tcp, want_http, false, 0).await
+    }
+
+    /// Full-flag variant of [`connect_raw`] with UDP capability fields.
+    pub async fn connect_raw_udp(
+        addr: SocketAddr,
+        cert_pem: &[u8],
+        token: &str,
+        want_tcp: bool,
+        want_http: bool,
+        want_udp: bool,
+        udp_port: u16,
+    ) -> (FakeClient, Result<Control, Control>) {
         let cfg = Arc::new(client_tls(cert_pem));
         let connector = tokio_tungstenite::Connector::Rustls(cfg);
         let url = format!("wss://127.0.0.1:{}/connect", addr.port());
@@ -190,6 +228,8 @@ impl FakeClient {
             token: token.to_string(),
             want_tcp,
             want_http,
+            want_udp,
+            udp_port,
             subdomain_hint: None,
         })
         .await;

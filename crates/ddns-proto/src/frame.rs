@@ -27,6 +27,13 @@ pub enum Opcode {
     Data,
     Close,
     Ping,
+    /// UDP flow open (broker -> client): payload = `OpenMeta` with the local
+    /// UDP target port. One flow per (visitor addr -> local target) pair.
+    UOpen,
+    /// UDP datagram (both directions): payload = one datagram, verbatim.
+    UData,
+    /// UDP flow close (both directions): idle timeout or socket error.
+    UClose,
 }
 
 impl Opcode {
@@ -38,6 +45,9 @@ impl Opcode {
             Opcode::Data => 4,
             Opcode::Close => 5,
             Opcode::Ping => 6,
+            Opcode::UOpen => 7,
+            Opcode::UData => 8,
+            Opcode::UClose => 9,
         }
     }
 
@@ -49,6 +59,9 @@ impl Opcode {
             4 => Opcode::Data,
             5 => Opcode::Close,
             6 => Opcode::Ping,
+            7 => Opcode::UOpen,
+            8 => Opcode::UData,
+            9 => Opcode::UClose,
             other => return Err(FrameError::UnknownOpcode { code: other }),
         })
     }
@@ -117,6 +130,9 @@ mod tests {
             (4, Opcode::Data),
             (5, Opcode::Close),
             (6, Opcode::Ping),
+            (7, Opcode::UOpen),
+            (8, Opcode::UData),
+            (9, Opcode::UClose),
         ] {
             assert_eq!(op.as_u8(), code);
             assert_eq!(Opcode::from_u8(code).unwrap(), op);
@@ -126,8 +142,8 @@ mod tests {
             Err(FrameError::UnknownOpcode { code: 0 })
         ));
         assert!(matches!(
-            Opcode::from_u8(7),
-            Err(FrameError::UnknownOpcode { code: 7 })
+            Opcode::from_u8(10),
+            Err(FrameError::UnknownOpcode { code: 10 })
         ));
     }
 
@@ -246,5 +262,19 @@ mod tests {
     fn decode_rejects_8_byte_buffer() {
         let err = Frame::decode(&[0u8; 8]).unwrap_err();
         assert!(matches!(err, FrameError::Truncated { .. }));
+    }
+    #[test]
+    fn udp_frame_roundtrip() {
+        let f = Frame {
+            opcode: Opcode::UData,
+            stream_id: 42,
+            payload: Bytes::from_static(b"dns-query-bytes"),
+        };
+        let mut buf = Vec::new();
+        f.encode(&mut buf).unwrap();
+        let back = Frame::decode(&buf).unwrap();
+        assert_eq!(back.opcode, Opcode::UData);
+        assert_eq!(back.stream_id, 42);
+        assert_eq!(back.payload.as_ref(), b"dns-query-bytes");
     }
 }

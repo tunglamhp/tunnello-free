@@ -54,6 +54,12 @@ impl Registry {
         self.sessions.len()
     }
 
+    /// Snapshot of all live sessions (unordered). Used by the UDP bridge to
+    /// pick a target session for a new flow.
+    pub fn all_sessions(&self) -> Vec<Arc<TunnelSession>> {
+        self.sessions.iter().map(|e| e.value().clone()).collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
     }
@@ -70,6 +76,8 @@ impl Registry {
         token_id: String,
         want_tcp: bool,
         want_http: bool,
+        want_udp: bool,
+        udp_target_port: u16,
         limits: TokenLimits,
         ws_tx: tokio::sync::mpsc::Sender<axum::extract::ws::Message>,
         kill_tx: tokio::sync::watch::Sender<Option<ddns_proto::KillReason>>,
@@ -104,6 +112,8 @@ impl Registry {
                 slug.clone(),
                 want_tcp,
                 want_http,
+                want_udp,
+                udp_target_port,
                 limits,
                 ws_tx.clone(),
                 kill_tx.clone(),
@@ -130,6 +140,8 @@ impl Registry {
                 slug.clone(),
                 want_tcp,
                 want_http,
+                want_udp,
+                udp_target_port,
                 limits,
                 ws_tx.clone(),
                 kill_tx.clone(),

@@ -16,11 +16,13 @@ fn make_cli(
     server: &str,
     http_target: Option<LocalTarget>,
     tcp_target: Option<LocalTarget>,
+    udp_target: Option<u16>,
 ) -> Cli {
     Cli {
         token: token.to_string(),
         server: server.to_string(),
         http_target,
+        udp_target,
         tcp_target,
         name: None,
         ca_pem: None,
@@ -39,6 +41,7 @@ async fn register_success_http_tcp() {
         &format!("https://127.0.0.1:{}", addr.port()),
         Some(LocalTarget::http(8080)),
         Some(LocalTarget::tcp(22)),
+        None,
     );
 
     let (_write, _read, reply, _session_secret) =
@@ -77,6 +80,7 @@ async fn register_http_only_sends_tcp_none() {
         &format!("https://127.0.0.1:{}", addr.port()),
         Some(LocalTarget::http(8080)),
         None,
+        None,
     );
 
     let (_write, _read, reply, _session_secret) =
@@ -106,6 +110,7 @@ async fn register_rejected_token() {
         &format!("https://127.0.0.1:{}", addr.port()),
         Some(LocalTarget::http(8080)),
         None,
+        None,
     );
 
     let err = connect::connect_and_register(&cli, &roots)
@@ -127,6 +132,7 @@ async fn heartbeat_gets_pong() {
         &token,
         &format!("https://127.0.0.1:{}", addr.port()),
         Some(LocalTarget::http(8080)),
+        None,
         None,
     );
     cli.heartbeat_interval = Duration::from_millis(150);
@@ -252,6 +258,8 @@ async fn client_registers_with_no_tunnel_hint() {
         token: "tok_x".into(),
         want_tcp: true,
         want_http: true,
+        want_udp: false,
+        udp_port: 0,
         subdomain_hint: None,
     };
     let json = serde_json::to_string(&msg).unwrap();

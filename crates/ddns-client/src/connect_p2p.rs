@@ -177,6 +177,7 @@ async fn signal_via_broker(
         server: server.clone(),
         http_target: None,
         tcp_target: None,
+        udp_target: None,
         name: None,
         ca_pem: ca_pem.map(std::path::PathBuf::from),
         heartbeat_interval: Duration::from_secs(0),

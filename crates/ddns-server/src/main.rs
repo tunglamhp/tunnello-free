@@ -48,6 +48,8 @@ Options:
                           (default: none; SQLite-only metering)
   --stun-port N           UDP port for the embedded RFC 5389 STUN server
                           (WebRTC ICE candidate gathering; default: disabled)
+  --udp-port N            Public UDP listener for UDP tunnels (0 = disabled,
+                          default 0). Requires a client started with --udp.
   --help                  Show this help";
 
 struct Args {
@@ -67,6 +69,7 @@ struct Args {
     dev: bool,
     redis_url: Option<String>,
     stun_port: Option<u16>,
+    udp_port: u16,
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
@@ -86,6 +89,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
     let mut acme_directory: Option<String> = None;
     let mut redis_url: Option<String> = None;
     let mut stun_port: Option<u16> = None;
+    let mut udp_port: Option<u16> = None;
     let mut dev = false;
 
     let mut i = 0;
@@ -135,6 +139,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--stun-port" => {
                 stun_port = Some(value(&mut i)?.parse().map_err(|_| "bad --stun-port")?)
             }
+            "--udp-port" => udp_port = Some(value(&mut i)?.parse().map_err(|_| "bad --udp-port")?),
             "--dev" => dev = true,
             other => return Err(format!("unknown flag: {other}")),
         }
@@ -178,6 +183,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
         dev,
         redis_url,
         stun_port,
+        udp_port: udp_port.unwrap_or(0),
     })
 }
 
@@ -297,6 +303,8 @@ async fn run() -> Result<(), String> {
         listen: opts.listen,
         domain: opts.domain.clone(),
         public_port: opts.public_port,
+        udp_port: opts.udp_port,
+        udp_target_port: 0,
         tls_cert_pem,
         tls_key_pem,
         token_store,

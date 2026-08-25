@@ -40,6 +40,10 @@ pub struct BrokerConfig {
     pub domain: String,
     /// Port advertised in `registered.tcp_addr` (443 in production).
     pub public_port: u16,
+    /// Public UDP listener port for UDP tunnels (0 = disabled).
+    pub udp_port: u16,
+    /// Local UDP target port the CLIENT dials for each flow (from --udp flag).
+    pub udp_target_port: u16,
     /// PEM-encoded certificate chain. Must be empty when `acme` is `Some`.
     pub tls_cert_pem: Vec<u8>,
     /// PEM-encoded private key. Must be empty when `acme` is `Some`.
@@ -85,6 +89,8 @@ impl Default for BrokerConfig {
             listen: "127.0.0.1:0".parse().unwrap(),
             domain: "localhost".to_string(),
             public_port: 443,
+            udp_port: 0,
+            udp_target_port: 0,
             tls_cert_pem: Vec::new(),
             tls_key_pem: Vec::new(),
             token_store: TokenStore::new(),

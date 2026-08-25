@@ -52,6 +52,8 @@ pub async fn start_broker_with_store(
         listen: "127.0.0.1:0".parse().unwrap(),
         domain: "tunnel.example.com".to_string(),
         public_port: 443,
+        udp_port: 0,
+        udp_target_port: 0,
         tls_cert_pem: cert_pem,
         tls_key_pem: key_pem,
         token_store: store,

@@ -81,8 +81,19 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
                     token,
                     want_tcp,
                     want_http,
+                    want_udp,
+                    udp_port,
                     subdomain_hint,
-                }) => return Some((token, want_tcp, want_http, subdomain_hint)),
+                }) => {
+                    return Some((
+                        token,
+                        want_tcp,
+                        want_http,
+                        want_udp,
+                        udp_port,
+                        subdomain_hint,
+                    ));
+                }
                 _ => continue, // ignore non-register frames pre-handshake
             }
         }
@@ -168,7 +179,7 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
     let (preferred_slug, custom_host, http_options) = {
         let profile = state
             .tunnels
-            .resolve_for_token(&token_record.id, register.3.as_deref())
+            .resolve_for_token(&token_record.id, register.5.as_deref())
             .await
             .unwrap_or(None);
         match profile {
@@ -181,6 +192,8 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
         token_record.id.clone(),
         register.1,
         register.2,
+        register.3,
+        register.4,
         limits,
         ws_tx.clone(),
         kill_tx,

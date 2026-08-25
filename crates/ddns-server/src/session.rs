@@ -58,6 +58,10 @@ pub struct DebugEntry {
 
 const DEBUG_RING_CAP: usize = 100;
 
+/// Max UDP datagram forwarded in one UData frame payload (64 KiB, the classic
+/// UDP max; larger datagrams are dropped, matching real UDP behavior).
+pub const UDP_DATAGRAM_MAX: usize = 65_535;
+
 pub struct TunnelSession {
     pub id: String,
     pub token_id: String,
@@ -107,6 +111,10 @@ pub struct TunnelSession {
     session_secret: [u8; 32],
     /// Live debugger ring buffer (last N requests, metadata only).
     debug_log: std::sync::Mutex<Vec<DebugEntry>>,
+    /// Session advertises UDP capability (client registered with --udp).
+    pub want_udp: bool,
+    /// Local UDP port the client dials for each flow (from --udp PORT).
+    pub udp_target_port: u16,
 }
 
 impl TunnelSession {
@@ -116,6 +124,8 @@ impl TunnelSession {
         slug: String,
         want_tcp: bool,
         want_http: bool,
+        want_udp: bool,
+        udp_target_port: u16,
         limits: TokenLimits,
         ws_tx: mpsc::Sender<Message>,
         kill_tx: watch::Sender<Option<KillReason>>,
@@ -153,6 +163,8 @@ impl TunnelSession {
             http_options,
             session_secret,
             debug_log: std::sync::Mutex::new(Vec::new()),
+            want_udp,
+            udp_target_port,
         })
     }
 
@@ -329,6 +341,8 @@ mod tests {
             "abc-12".into(),
             true,
             true,
+            false,
+            0,
             limits,
             ws_tx,
             kill_tx,
@@ -369,6 +383,8 @@ mod tests {
             "s".into(),
             true,
             true,
+            false,
+            0,
             unlimited(),
             ws_tx,
             kill_tx,

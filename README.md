@@ -4,7 +4,7 @@
 
 <h1 align="center">Tunello — self-hosted tunnel service</h1>
 
-<p align="center"><em>Expose local HTTP/TCP services through a secure WebSocket tunnel — one command from customer to public URL.</em></p>
+<p align="center"><em>Expose local HTTP/TCP services through a secure UDP + WebSocket tunnel — one command from customer to public URL.</em></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="License"/></a>

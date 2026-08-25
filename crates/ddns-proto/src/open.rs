@@ -6,6 +6,7 @@ use crate::{MAX_FRAME_PAYLOAD, ProtoError};
 pub enum StreamKind {
     Http,
     Tcp,
+    Udp,
 }
 
 impl StreamKind {
@@ -13,6 +14,7 @@ impl StreamKind {
         match self {
             StreamKind::Http => 0,
             StreamKind::Tcp => 1,
+            StreamKind::Udp => 2,
         }
     }
 
@@ -20,6 +22,7 @@ impl StreamKind {
         Ok(match code {
             0 => StreamKind::Http,
             1 => StreamKind::Tcp,
+            2 => StreamKind::Udp,
             other => return Err(ProtoError::InvalidKind(other)),
         })
     }
@@ -91,12 +94,13 @@ mod tests {
     #[test]
     fn kind_roundtrip() {
         assert_eq!(StreamKind::Http.as_u8(), 0);
-        assert_eq!(StreamKind::Tcp.as_u8(), 1);
+        assert_eq!(StreamKind::Udp.as_u8(), 2);
         assert_eq!(StreamKind::from_u8(0).unwrap(), StreamKind::Http);
         assert_eq!(StreamKind::from_u8(1).unwrap(), StreamKind::Tcp);
+        assert_eq!(StreamKind::from_u8(2).unwrap(), StreamKind::Udp);
         assert!(matches!(
-            StreamKind::from_u8(2),
-            Err(super::super::ProtoError::InvalidKind(2))
+            StreamKind::from_u8(3),
+            Err(super::super::ProtoError::InvalidKind(3))
         ));
     }
 

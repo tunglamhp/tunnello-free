@@ -32,6 +32,12 @@ pub enum Control {
         token: String,
         want_tcp: bool,
         want_http: bool,
+        /// Advertise UDP tunnel capability (client started with --udp).
+        #[serde(default)]
+        want_udp: bool,
+        /// Local UDP port the client dials for each flow (from --udp PORT).
+        #[serde(default)]
+        udp_port: u16,
         #[serde(default)]
         subdomain_hint: Option<String>,
     },
@@ -97,6 +103,8 @@ mod tests {
             token: "tok_abc".into(),
             want_tcp: true,
             want_http: true,
+            want_udp: false,
+            udp_port: 0,
             subdomain_hint: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
