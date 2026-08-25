@@ -226,6 +226,7 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
             .want_tcp
             .then(|| state.config.tcp_addr_for(&session.slug)),
         session_secret: URL_SAFE_NO_PAD.encode(session.session_secret()),
+        broker_version: Some(env!("CARGO_PKG_VERSION").to_string()),
     };
     let _ = ws_tx.send(Message::Text(control_json(&reply))).await;
 

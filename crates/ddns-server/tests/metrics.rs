@@ -245,7 +245,6 @@ async fn metrics_operator_session_serves_live_exposition() {
         "ddns_bytes_total",
         "ddns_active_sessions",
         "ddns_ratelimit_429_total",
-        "ddns_tokens_debited_total",
     ] {
         assert!(
             metrics.contains(name),

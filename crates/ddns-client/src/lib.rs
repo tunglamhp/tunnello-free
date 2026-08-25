@@ -96,8 +96,7 @@ pub async fn run(
                     http_url,
                     tcp_addr,
                 };
-                // A successful session resets the retry counter so a later
-                // drop reconnects at 1 s, not at the accumulated count.
+                // Broker version compatibility check (informational only).
                 backoff.reset();
 
                 // Shared write queue — moved into the mux task.

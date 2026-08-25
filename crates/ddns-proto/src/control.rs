@@ -39,6 +39,9 @@ pub enum Control {
         http_url: Option<String>,
         tcp_addr: Option<String>,
         session_secret: String,
+        /// Broker software version for client compatibility checks.
+        #[serde(default)]
+        broker_version: Option<String>,
     },
     Quota {
         usage: Usage,
@@ -111,6 +114,7 @@ mod tests {
                 http_url: Some("https://vivid-otter-72.example.com".into()),
                 tcp_addr: Some("vivid-otter-72.example.com:443".into()),
                 session_secret: String::new(),
+                broker_version: None,
             },
             Control::Quota {
                 usage: Usage {
@@ -159,6 +163,7 @@ mod tests {
             http_url: Some("https://x.tunnel.example.com".into()),
             tcp_addr: None,
             session_secret: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=".into(),
+            broker_version: None,
         };
         let json = serde_json::to_string(&c).unwrap();
         assert!(json.contains("\"session_secret\""));
