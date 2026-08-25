@@ -158,7 +158,16 @@ button{padding:.5rem 1rem;background:#2563eb;color:#fff;border:0;border-radius:4
     )
 }
 
-pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Option<Response> {
+/// Full pipeline incl. visitor-auth gates. [`apply`] delegates here with
+/// auth disabled so existing callers are unaffected.
+pub fn apply_with_auth(
+    req: &mut Request<Body>,
+    peer_ip: IpAddr,
+    opts: &HttpOptions,
+    secret: Option<&[u8]>,
+    oidc_ready: bool,
+    otp_ready: bool,
+) -> Option<Response> {
     if is_preflight(req) && opts.pass_preflight {
         return None;
     }
@@ -179,6 +188,29 @@ pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Op
         && let Some(resp) = pin_check(req, pin)
     {
         return Some(resp);
+    }
+    if opts.oidc_auth {
+        let ok = secret.is_some_and(|s| auth_cookie_ok(req, "tnl_auth", s));
+        if !ok {
+            return Some(match (secret, oidc_ready) {
+                (Some(_), true) => redirect_to_auth("oidc", &current_path(req)),
+                _ => (StatusCode::SERVICE_UNAVAILABLE, "OIDC not configured on this broker")
+                    .into_response(),
+            });
+        }
+    }
+    if opts.email_otp {
+        let ok = secret.is_some_and(|s| auth_cookie_ok(req, "tnl_otp", s));
+        if !ok {
+            return Some(match (secret, otp_ready) {
+                (Some(_), true) => redirect_to_auth("otp", &current_path(req)),
+                _ => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "email OTP not configured on this broker",
+                )
+                    .into_response(),
+            });
+        }
     }
     // header mutations ------------------------------------------------------
     if opts.reverse_proxy_headers {
@@ -222,4 +254,31 @@ pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Op
         }
     }
     None
+}
+
+/// Delegate: no visitor-auth secret → OIDC/OTP gates never configured.
+pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Option<Response> {
+    apply_with_auth(req, peer_ip, opts, None, false, false)
+}
+
+/// True when the request carries a valid signed visitor-auth cookie.
+fn auth_cookie_ok(req: &Request<Body>, name: &str, secret: &[u8]) -> bool {
+    req.headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|c| {
+            let prefix = format!("{name}=");
+            c.split(';').find_map(|p| p.trim().strip_prefix(prefix.as_str()))
+        })
+        .and_then(|v| crate::visitor_auth::VisitorAuthCookie::verify(v, secret))
+        .is_some()
+}
+
+fn redirect_to_auth(kind: &str, back: &str) -> Response {
+    use axum::response::Redirect;
+    Redirect::to(&format!("/__auth/{kind}?back={back}")).into_response()
+}
+
+fn current_path(req: &Request<Body>) -> String {
+    crate::visitor_auth::safe_back(req.uri().path_and_query().map(|p| p.as_str()))
 }

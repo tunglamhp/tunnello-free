@@ -191,6 +191,8 @@ async fn options_json_round_trip() {
         add_headers: vec![("X-Foo".into(), "bar".into())],
         remove_headers: vec!["X-Bad".into()],
         pass_preflight: true,
+        oidc_auth: true,
+        email_otp: true,
     };
     let json = serde_json::to_string(&opts).unwrap();
     let back: HttpOptions = serde_json::from_str(&json).unwrap();
@@ -202,6 +204,8 @@ async fn options_json_round_trip() {
     );
     assert!(empty.key_auth.is_none());
     assert!(empty.pin_auth.is_none());
+    assert!(!empty.oidc_auth);
+    assert!(!empty.email_otp);
 }
 
 #[tokio::test]

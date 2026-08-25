@@ -194,3 +194,69 @@ fn pin_auth_rejects_wrong_cookie() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[test]
+fn oidc_gate_redirects_without_cookie_and_503_when_unconfigured() {
+    let opts = HttpOptions {
+        oidc_auth: true,
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    // unconfigured broker → 503, no redirect loop
+    let resp = ddns_server::http_options::apply_with_auth(
+        &mut req("GET", "/x"),
+        ip,
+        &opts,
+        None,
+        false,
+        false,
+    )
+    .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    // configured but no cookie → redirect to /__auth/oidc
+    let resp = ddns_server::http_options::apply_with_auth(
+        &mut req("GET", "/x"),
+        ip,
+        &opts,
+        Some(b"s".as_slice()),
+        true,
+        false,
+    )
+    .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert!(format!("{:?}", resp.headers().get("location")).contains("/__auth/oidc"));
+    // valid cookie → pass through
+    let cookie = ddns_server::visitor_auth::VisitorAuthCookie::issue(b"s", "a@b.c", 3600);
+    let mut ok = req_with("GET", "/x", &[("Cookie", &format!("tnl_auth={cookie}"))]);
+    assert!(
+        ddns_server::http_options::apply_with_auth(
+            &mut ok,
+            ip,
+            &opts,
+            Some(b"s".as_slice()),
+            true,
+            false
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn otp_gate_redirects_without_cookie() {
+    let opts = HttpOptions {
+        email_otp: true,
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let resp = ddns_server::http_options::apply_with_auth(
+        &mut req("GET", "/"),
+        ip,
+        &opts,
+        Some(b"s".as_slice()),
+        false,
+        true,
+    )
+    .unwrap();
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    assert!(format!("{:?}", resp.headers().get("location")).contains("/__auth/otp"));
+}

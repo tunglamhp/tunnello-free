@@ -1509,6 +1509,8 @@ fn parse_options_from_form(body: &str) -> HttpOptions {
             .map(str::to_string)
             .collect(),
         pass_preflight: !form_field(body, "options_pass_preflight").is_empty(),
+        oidc_auth: !form_field(body, "options_oidc_auth").is_empty(),
+        email_otp: !form_field(body, "options_email_otp").is_empty(),
     }
 }
 

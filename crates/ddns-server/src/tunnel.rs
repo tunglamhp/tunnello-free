@@ -29,6 +29,10 @@ pub struct HttpOptions {
     #[serde(default)]
     pub pin_auth: Option<String>,
     #[serde(default)]
+    pub oidc_auth: bool,
+    #[serde(default)]
+    pub email_otp: bool,
+    #[serde(default)]
     pub ip_whitelist: Vec<String>,
     #[serde(default)]
     pub https_only: bool,
@@ -49,6 +53,8 @@ impl Default for HttpOptions {
             basic_auth: None,
             key_auth: None,
             pin_auth: None,
+            oidc_auth: false,
+            email_otp: false,
             ip_whitelist: Vec::new(),
             https_only: false,
             host_rewrite: None,
