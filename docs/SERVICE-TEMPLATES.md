@@ -134,3 +134,27 @@ docker port <container-name>
 # Tunnel it:
 ddns --token <SECRET> --server https://<broker> --port <published-port>
 ```
+
+---
+
+## Protecting tunnels with a PIN code
+
+Any HTTP tunnel can require visitors to enter a PIN before access
+(inspired by Pangolin's resource authentication):
+
+1. Open the operator dashboard → your tunnel → **Options**.
+2. Set **PIN code** (e.g. `2468`) and save.
+3. Visitors now see an "Access Code Required" page; entering the correct PIN
+   (via `https://<sub>.<domain>?pin=2468`) sets a 24-hour session cookie.
+
+Other per-tunnel protections available in Options:
+
+| Option | Effect |
+|---|---|
+| Basic auth | `WWW-Authenticate: Basic` username/password prompt |
+| Key auth (Bearer) | Requires `Authorization: Bearer <secret>` header |
+| PIN code | Browser PIN entry page + 24h cookie session |
+| IP whitelist | Only listed IPs/CIDRs may connect |
+| Add/remove headers | Rewrite request headers before forwarding |
+
+All options compose: e.g. IP whitelist **and** PIN gives two independent gates.

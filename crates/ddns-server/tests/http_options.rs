@@ -130,3 +130,67 @@ fn header_mutations() {
     assert_eq!(h.get("X-Forwarded-Host").unwrap(), "orig.example.com");
     assert!(h.get("Forwarded").is_some());
 }
+
+#[test]
+fn pin_auth_challenges_without_cookie() {
+    let opts = HttpOptions {
+        pin_auth: Some("1234".into()),
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let resp = apply(&mut req("GET", "/"), ip, &opts).unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    // Body is HTML with a PIN form
+    // (We can't easily read the body here, but status is enough.)
+}
+
+#[test]
+fn pin_auth_passes_with_correct_query_pin() {
+    let opts = HttpOptions {
+        pin_auth: Some("1234".into()),
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let resp = apply(&mut req("GET", "/?pin=1234"), ip, &opts).unwrap();
+    // Redirect to / after successful PIN entry
+    assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+    // Sets a tunnello_pin cookie
+    let set_cookie = resp.headers().get("set-cookie").unwrap().to_str().unwrap();
+    assert!(set_cookie.contains("tunnello_pin=1234"));
+}
+
+#[test]
+fn pin_auth_rejects_wrong_query_pin() {
+    let opts = HttpOptions {
+        pin_auth: Some("1234".into()),
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let resp = apply(&mut req("GET", "/?pin=9999"), ip, &opts).unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+fn pin_auth_passes_with_valid_cookie() {
+    let opts = HttpOptions {
+        pin_auth: Some("1234".into()),
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let mut ok = req_with("GET", "/", &[("Cookie", "tunnello_pin=1234")]);
+    assert!(apply(&mut ok, ip, &opts).is_none(), "valid cookie passes");
+}
+
+#[test]
+fn pin_auth_rejects_wrong_cookie() {
+    let opts = HttpOptions {
+        pin_auth: Some("1234".into()),
+        ..Default::default()
+    };
+    let ip: IpAddr = Ipv4Addr::new(127, 0, 0, 1).into();
+    let mut bad = req_with("GET", "/", &[("Cookie", "tunnello_pin=wrong")]);
+    assert_eq!(
+        apply(&mut bad, ip, &opts).unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+}

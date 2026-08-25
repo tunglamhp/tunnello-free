@@ -184,6 +184,7 @@ async fn options_json_round_trip() {
         reverse_proxy_headers: true,
         basic_auth: Some(("admin".into(), "hunter2".into())),
         key_auth: Some("k-123".into()),
+        pin_auth: Some("2468".into()),
         ip_whitelist: vec!["127.0.0.1".into(), "10.0.0.0/8".into()],
         https_only: true,
         host_rewrite: Some("internal.local".into()),
@@ -200,6 +201,7 @@ async fn options_json_round_trip() {
         "absent field must default to true"
     );
     assert!(empty.key_auth.is_none());
+    assert!(empty.pin_auth.is_none());
 }
 
 #[tokio::test]

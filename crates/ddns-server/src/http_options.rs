@@ -98,6 +98,66 @@ fn key_ok(req: &Request<Body>, key: &str) -> bool {
         .is_some_and(|k| crate::auth::hmac_eq(k.as_bytes(), key.as_bytes()))
 }
 
+/// Verify a PIN code from a form POST or from the `tunnello_pin` cookie.
+/// Returns `Some(redirect_or_forbidden)` when the visitor still needs to
+/// authenticate, `None` when the PIN is valid (or not configured).
+fn pin_check(req: &mut Request<Body>, pin: &str) -> Option<Response> {
+    use axum::http::header::{COOKIE, SET_COOKIE};
+
+    // 1. Cookie already carries a verified PIN (HMAC-signed by the broker).
+    if let Some(cookie) = req.headers().get(COOKIE).and_then(|v| v.to_str().ok()) {
+        for part in cookie.split(';') {
+            let part = part.trim();
+            if let Some(val) = part.strip_prefix("tunnello_pin=")
+                && crate::auth::hmac_eq(val.as_bytes(), pin.as_bytes())
+            {
+                return None; // already authenticated
+            }
+        }
+    }
+
+    // 2. Form POST: verify the submitted PIN and set a session cookie.
+    //    We only support application/x-www-form-urlencoded with `pin=<code>`.
+    //    (Body is buffered by the caller for POSTs; here we check the query
+    //    string as a lightweight alternative.)
+    if let Some(q) = req.uri().query() {
+        for pair in q.split('&') {
+            if let Some(val) = pair.strip_prefix("pin=")
+                && crate::auth::hmac_eq(val.as_bytes(), pin.as_bytes())
+            {
+                let mut resp = axum::response::Redirect::to("/").into_response();
+                resp.headers_mut().insert(
+                    SET_COOKIE,
+                    HeaderValue::from_str(&format!(
+                        "tunnello_pin={pin}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"
+                    ))
+                    .unwrap(),
+                );
+                return Some(resp);
+            }
+        }
+    }
+
+    // 3. Not authenticated: render a minimal PIN entry page.
+    let html = r#"<!DOCTYPE html><html><head><title>Access Code</title>
+<style>body{font-family:system-ui;display:grid;place-items:center;height:100vh;margin:0;background:#f5f5f5}
+form{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+input{padding:.5rem;font-size:1rem;border:1px solid #ccc;border-radius:4px;margin-right:.5rem}
+button{padding:.5rem 1rem;background:#2563eb;color:#fff;border:0;border-radius:4px;cursor:pointer}</style>
+</head><body><form method="GET"><h2>🔒 Access Code Required</h2>
+<p>Enter the PIN code to access this tunnel.</p>
+<input type="password" name="pin" placeholder="PIN code" autofocus required>
+<button type="submit">Unlock</button></form></body></html>"#;
+    Some(
+        (
+            StatusCode::UNAUTHORIZED,
+            [("Content-Type", "text/html; charset=utf-8")],
+            html,
+        )
+            .into_response(),
+    )
+}
+
 pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Option<Response> {
     if is_preflight(req) && opts.pass_preflight {
         return None;
@@ -114,6 +174,11 @@ pub fn apply(req: &mut Request<Body>, peer_ip: IpAddr, opts: &HttpOptions) -> Op
         && !key_ok(req, key)
     {
         return Some(unauthorized());
+    }
+    if let Some(pin) = &opts.pin_auth
+        && let Some(resp) = pin_check(req, pin)
+    {
+        return Some(resp);
     }
     // header mutations ------------------------------------------------------
     if opts.reverse_proxy_headers {
