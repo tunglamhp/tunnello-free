@@ -1040,6 +1040,7 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "lettre",
+ "parking_lot",
  "prometheus",
  "qrcode",
  "rand 0.9.5",
