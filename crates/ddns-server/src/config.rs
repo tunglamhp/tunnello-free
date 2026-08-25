@@ -44,6 +44,9 @@ pub struct BrokerConfig {
     pub udp_port: u16,
     /// Local UDP target port the CLIENT dials for each flow (from --udp flag).
     pub udp_target_port: u16,
+    /// Dedicated per-slug UDP ports: (slug, port). Each binds its own socket;
+    /// datagrams route to the named slug's session without a prefix.
+    pub udp_routes: Vec<(String, u16)>,
     /// PEM-encoded certificate chain. Must be empty when `acme` is `Some`.
     pub tls_cert_pem: Vec<u8>,
     /// PEM-encoded private key. Must be empty when `acme` is `Some`.
@@ -91,6 +94,7 @@ impl Default for BrokerConfig {
             public_port: 443,
             udp_port: 0,
             udp_target_port: 0,
+            udp_routes: Vec::new(),
             tls_cert_pem: Vec::new(),
             tls_key_pem: Vec::new(),
             token_store: TokenStore::new(),

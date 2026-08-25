@@ -297,11 +297,12 @@ impl Broker {
         );
         let app = http_app::router(state.clone());
         // Public UDP tunnel listener (disabled when --udp-port is 0/absent).
-        if config.udp_port > 0 {
+        if config.udp_port > 0 || !config.udp_routes.is_empty() {
             let udp_state = state.clone();
             let udp_port = config.udp_port;
+            let udp_routes = config.udp_routes.clone();
             tokio::spawn(async move {
-                if let Err(e) = udp_bridge::run(udp_state, udp_port).await {
+                if let Err(e) = udp_bridge::run(udp_state, udp_port, udp_routes).await {
                     tracing::warn!(error = %e, "UDP listener exited; UDP tunnels disabled");
                 }
             });

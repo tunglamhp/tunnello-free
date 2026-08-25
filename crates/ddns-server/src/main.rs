@@ -50,6 +50,10 @@ Options:
                           (WebRTC ICE candidate gathering; default: disabled)
   --udp-port N            Public UDP listener for UDP tunnels (0 = disabled,
                           default 0). Requires a client started with --udp.
+                          The first datagram of each flow must start with
+                          the slug followed by a newline.
+  --udp-route slug=port   Dedicated UDP port for one slug (repeatable); no
+                          prefix needed on this port.
   --help                  Show this help";
 
 struct Args {
@@ -70,6 +74,7 @@ struct Args {
     redis_url: Option<String>,
     stun_port: Option<u16>,
     udp_port: u16,
+    udp_routes: Vec<(String, u16)>,
 }
 
 fn parse(args: &[String]) -> Result<Args, String> {
@@ -90,6 +95,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
     let mut redis_url: Option<String> = None;
     let mut stun_port: Option<u16> = None;
     let mut udp_port: Option<u16> = None;
+    let mut udp_routes: Vec<(String, u16)> = Vec::new();
     let mut dev = false;
 
     let mut i = 0;
@@ -140,6 +146,17 @@ fn parse(args: &[String]) -> Result<Args, String> {
                 stun_port = Some(value(&mut i)?.parse().map_err(|_| "bad --stun-port")?)
             }
             "--udp-port" => udp_port = Some(value(&mut i)?.parse().map_err(|_| "bad --udp-port")?),
+            "--udp-route" => {
+                let spec = value(&mut i)?;
+                let (slug, port) = spec
+                    .split_once('=')
+                    .ok_or("bad --udp-route (want slug=port)")?;
+                let port: u16 = port.parse().map_err(|_| "bad --udp-route port")?;
+                if port == 0 || slug.is_empty() || slug.contains('=') {
+                    return Err("bad --udp-route (want slug=port, port != 0)".into());
+                }
+                udp_routes.push((slug.to_string(), port));
+            }
             "--dev" => dev = true,
             other => return Err(format!("unknown flag: {other}")),
         }
@@ -184,6 +201,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
         redis_url,
         stun_port,
         udp_port: udp_port.unwrap_or(0),
+        udp_routes,
     })
 }
 
@@ -304,6 +322,7 @@ async fn run() -> Result<(), String> {
         domain: opts.domain.clone(),
         public_port: opts.public_port,
         udp_port: opts.udp_port,
+        udp_routes: opts.udp_routes,
         udp_target_port: 0,
         tls_cert_pem,
         tls_key_pem,

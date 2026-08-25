@@ -189,8 +189,12 @@ Policies are stored in the broker database and audited (`policy.save`,
 Expose a UDP service (broker needs `--udp-port`, client uses `--udp`):
 
 ```sh
-# Broker side (one-time):
+# Broker side (one-time) — shared port; the FIRST datagram of each flow
+# must start with the tunnel slug + a newline:
 ddns-server --domain <domain> --udp-port 5353
+
+# ...or dedicated per-tunnel ports (no prefix needed):
+ddns-server --domain <domain> --udp-route mydns=5353 --udp-route backup=5354
 
 # Client side:
 ddns --token <SECRET> --server https://<broker> --udp 53
@@ -202,5 +206,5 @@ dig @<broker-host> -p 5353 example.com
 Notes:
 - One UDP "flow" per visitor address; flows idle out after 30 s.
 - Datagrams up to 64 KiB; larger ones are dropped (like real UDP).
-- v1 routes the port to the first live `--udp` client (multi-tenant
-  per-slug UDP routing is future work).
+- Multi-tenant: the shared port routes by the `<slug>` prefix on the first
+  datagram; `--udp-route` gives a tunnel its own port with no prefix.

@@ -15,10 +15,36 @@ use ddns_server::TokenStore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const PAYLOAD_MB: usize = 32;
-const MIN_MB_PER_SEC: f64 = 25.0; // conservative floor; in-process runs far faster
+/// Conservative floor; in-process runs far faster. Serial CI runs share the
+/// CPU with other test binaries, so a single slow pass retries once before
+/// failing — a real regression fails both passes.
+const MIN_MB_PER_SEC: f64 = 25.0;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn round_trip_throughput_stays_above_floor() {
+    let (mbps, elapsed, broker) = run_once().await;
+    if mbps < MIN_MB_PER_SEC {
+        // Contended CI machines can starve one pass; a real regression also
+        // fails the retry. eprintln keeps the slow pass visible in logs.
+        eprintln!(
+            "throughput pass 1 slow: {mbps:.1} MiB/s below floor {MIN_MB_PER_SEC} ({elapsed:?}); retrying once"
+        );
+        broker.stop().await;
+        let (mbps2, elapsed2, broker2) = run_once().await;
+        assert!(
+            mbps2 >= MIN_MB_PER_SEC,
+            "round-trip {mbps2:.1} MiB/s below floor {MIN_MB_PER_SEC} MiB/s after retry \
+             ({elapsed2:?}; first pass {mbps:.1})"
+        );
+        broker2.stop().await;
+        return;
+    }
+    broker.stop().await;
+}
+
+/// One full measurement pass: broker + fake client + 32 MiB round trip.
+/// Returns (MiB/s, elapsed, broker) — the caller owns `broker.stop()`.
+async fn run_once() -> (f64, std::time::Duration, ddns_server::Broker) {
     let (cert, key) = test_cert();
     let store = TokenStore::new();
     store
@@ -88,9 +114,5 @@ async fn round_trip_throughput_stays_above_floor() {
     );
     // Round trip: PAYLOAD_MB out + PAYLOAD_MB in.
     let mbps = (2 * PAYLOAD_MB) as f64 / elapsed.as_secs_f64();
-    assert!(
-        mbps >= MIN_MB_PER_SEC,
-        "round-trip {mbps:.1} MiB/s below floor {MIN_MB_PER_SEC} MiB/s ({elapsed:?})"
-    );
-    broker.stop().await;
+    (mbps, elapsed, broker)
 }

@@ -85,6 +85,7 @@ pub fn broker_config(
         public_port: 443,
         udp_port: 0,
         udp_target_port: 0,
+        udp_routes: Vec::new(),
         tls_cert_pem: cert.to_vec(),
         tls_key_pem: key.to_vec(),
         token_store: tokens,
@@ -172,10 +173,11 @@ impl FakeClient {
         want_tcp: bool,
         want_http: bool,
     ) -> (FakeClient, Control) {
-        Self::connect_udp_flags(addr, cert_pem, token, want_tcp, want_http, false, 0).await
+        Self::connect_udp_flags(addr, cert_pem, token, want_tcp, want_http, false, 0, None).await
     }
 
     /// Full-flag register: TCP/HTTP/UDP capability + local UDP target port.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect_udp_flags(
         addr: SocketAddr,
         cert_pem: &[u8],
@@ -184,9 +186,10 @@ impl FakeClient {
         want_http: bool,
         want_udp: bool,
         udp_port: u16,
+        slug_hint: Option<&str>,
     ) -> (FakeClient, Control) {
         let (fc, reply) = Self::connect_raw_udp(
-            addr, cert_pem, token, want_tcp, want_http, want_udp, udp_port,
+            addr, cert_pem, token, want_tcp, want_http, want_udp, udp_port, slug_hint,
         )
         .await;
         match reply {
@@ -203,10 +206,11 @@ impl FakeClient {
         want_tcp: bool,
         want_http: bool,
     ) -> (FakeClient, Result<Control, Control>) {
-        Self::connect_raw_udp(addr, cert_pem, token, want_tcp, want_http, false, 0).await
+        Self::connect_raw_udp(addr, cert_pem, token, want_tcp, want_http, false, 0, None).await
     }
 
     /// Full-flag variant of [`connect_raw`] with UDP capability fields.
+    #[allow(clippy::too_many_arguments)]
     pub async fn connect_raw_udp(
         addr: SocketAddr,
         cert_pem: &[u8],
@@ -215,6 +219,7 @@ impl FakeClient {
         want_http: bool,
         want_udp: bool,
         udp_port: u16,
+        slug_hint: Option<&str>,
     ) -> (FakeClient, Result<Control, Control>) {
         let cfg = Arc::new(client_tls(cert_pem));
         let connector = tokio_tungstenite::Connector::Rustls(cfg);
@@ -230,7 +235,7 @@ impl FakeClient {
             want_http,
             want_udp,
             udp_port,
-            subdomain_hint: None,
+            subdomain_hint: slug_hint.map(str::to_string),
         })
         .await;
         let reply = fc.recv_control().await;

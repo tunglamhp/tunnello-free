@@ -123,7 +123,7 @@ pub async fn run(
 
                 match mux_handle.await {
                     Ok(SessionEnd::WsClosed) => {
-                        // fall through to retry
+                        tracing::warn!("broker closed the control connection; retrying");
                     }
                     Ok(SessionEnd::Killed(reason, usage)) => {
                         sink(Event::Killed { reason, usage });
@@ -137,11 +137,11 @@ pub async fn run(
                         sink(Event::Fatal(TOKEN_EXHAUSTED_HINT.into()));
                         return ExitStatus::Fatal;
                     }
-                    Ok(SessionEnd::ServerError(_)) => {
-                        // server_full / no_subdomain: retry
+                    Ok(SessionEnd::ServerError(code)) => {
+                        tracing::warn!(?code, "broker rejected register; retrying");
                     }
-                    Err(_) => {
-                        // mux task panicked or was cancelled
+                    Err(e) => {
+                        tracing::error!(error = %e, "mux task failed; retrying");
                     }
                 }
             }

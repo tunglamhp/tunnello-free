@@ -54,6 +54,7 @@ pub async fn start_broker_with_store(
         public_port: 443,
         udp_port: 0,
         udp_target_port: 0,
+        udp_routes: Vec::new(),
         tls_cert_pem: cert_pem,
         tls_key_pem: key_pem,
         token_store: store,
