@@ -117,21 +117,38 @@ async fn serve_inner(
         .path_and_query()
         .map(|p| p.as_str())
         .unwrap_or("/");
+    // Detect WebSocket upgrade: Connection has "Upgrade" AND Upgrade header is websocket.
+    let is_ws_upgrade = req
+        .headers()
+        .get(UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false)
+        && req
+            .headers()
+            .get(CONNECTION)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.to_ascii_lowercase().contains("upgrade"))
+            .unwrap_or(false);
+
     let keep_alive = HeaderName::from_static("keep-alive");
     let x_forwarded_for = HeaderName::from_static("x-forwarded-for");
     let x_tunnello_relay = HeaderName::from_static("x-tunnello-relay");
     let mut req_headers: Vec<(String, String)> = Vec::new();
     for (k, v) in req.headers() {
         if *k == HOST
-            || *k == CONNECTION
             || *k == TRANSFER_ENCODING
             || *k == keep_alive
             || *k == TE
             || *k == TRAILER
-            || *k == UPGRADE
             || *k == x_forwarded_for
             || *k == x_tunnello_relay
         {
+            continue;
+        }
+        // For WS upgrades, forward Upgrade and Connection headers so the local
+        // app sees a proper upgrade request.
+        if is_ws_upgrade && (*k == CONNECTION || *k == UPGRADE) {
             continue;
         }
         req_headers.push((
@@ -239,6 +256,57 @@ async fn serve_inner(
             return StatusCode::BAD_GATEWAY.into_response();
         }
     };
+
+    // WebSocket upgrade: if the local app responded 101, switch to a
+    // bidirectional byte relay. The visitor gets a 101 + streaming body
+    // that carries DATA frames transparently.
+    if response_head.starts_with(b"HTTP/1.1 101") || response_head.starts_with(b"HTTP/1.0 101") {
+        // Forward the 101 head back to visitor via hyper's streaming body
+        // (hyper handles sending the headers; we just need a persistent stream)
+        //
+        // Build a minimal 101 response and use the existing streaming mechanism.
+        // The key insight: after 101, both sides speak WebSocket binary frames.
+        // The broker relays: visitor TCP ←→ tunnel DATA frames.
+
+        // Send 101 head to client's stream so it knows upgrade succeeded
+        // (the local app already sent it via OpenAck).
+
+        // Return a streaming response that acts as a raw pipe:
+        // - from_client_rx → visitor body (client → visitor direction)
+        // - body_pump → sends visitor bytes as DATA frames (visitor → client)
+
+        // The existing body_pump already forwards visitor→client.
+        // The `forward` task below already forwards client→visitor.
+        // So we just need to return a streaming response with no content-length
+        // and hyper will keep the connection alive for bidirectional relay.
+
+        let resp = Response::builder()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .header(UPGRADE, "websocket")
+            .header(CONNECTION, "Upgrade")
+            .body(Body::empty())
+            .unwrap();
+
+        // Spawn cleanup: when either side disconnects, release the stream slot
+        let session5 = session.clone();
+        let sid = stream_id;
+        tokio::spawn(async move {
+            // Wait for the body_pump to finish (= visitor disconnected)
+            let _ = body_pump.await;
+            // Send CLOSE to client so it closes the local app connection
+            let _ = session5
+                .send_frame(&Frame {
+                    opcode: Opcode::Close,
+                    stream_id: sid,
+                    payload: Bytes::from_static(&[0x00]), // ok
+                })
+                .await;
+            session5.streams.remove(&sid);
+            session5.release_stream();
+        });
+
+        return resp;
+    }
 
     if !response_head.starts_with(b"HTTP/") {
         abort_stream(&session, stream_id, &body_pump);

@@ -47,14 +47,20 @@ static RATELIMIT_429_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
 
 /// Active P2P data channels bridged by the gateway.
 static P2P_CHANNELS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
-    IntGauge::new("ddns_p2p_channels_active", "Active WebRTC P2P data channels.")
-        .expect("ddns_p2p_channels_active is a valid metric")
+    IntGauge::new(
+        "ddns_p2p_channels_active",
+        "Active WebRTC P2P data channels.",
+    )
+    .expect("ddns_p2p_channels_active is a valid metric")
 });
 
 /// Total P2P tunnel bytes relayed (tx+rx combined).
 static P2P_BYTES_TOTAL: LazyLock<IntCounter> = LazyLock::new(|| {
-    IntCounter::new("ddns_p2p_bytes_total", "P2P tunnel bytes transferred (both directions).")
-        .expect("ddns_p2p_bytes_total is a valid metric")
+    IntCounter::new(
+        "ddns_p2p_bytes_total",
+        "P2P tunnel bytes transferred (both directions).",
+    )
+    .expect("ddns_p2p_bytes_total is a valid metric")
 });
 
 /// The single registry every metric above is registered with.

@@ -566,10 +566,7 @@ mod tests {
     #[tokio::test]
     async fn new_account_has_default_currency_and_null_overrides() {
         let s = store();
-        let a = s
-            .create("client@example.com", "h", "client")
-            .await
-            .unwrap();
+        let a = s.create("client@example.com", "h", "client").await.unwrap();
         assert_eq!(a.currency, "USD");
         assert_eq!(a.price_monthly_override_cents, None);
         assert_eq!(a.price_yearly_override_cents, None);

@@ -150,7 +150,6 @@ fn form_req(cookie: &str, path: &str, body: &str) -> String {
 // test 1: tokens_page_renders_and_creates
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // test 1b: token_create_sets_flash_cookie
 // ---------------------------------------------------------------------------
@@ -837,8 +836,6 @@ async fn settings_page_card_order_and_balanced_forms() {
 // ---------------------------------------------------------------------------
 // test: defaults card renders current values; POST saves + persists
 // ---------------------------------------------------------------------------
-
-
 
 // ---------------------------------------------------------------------------
 // test: admin credit route — token balance card + valid/invalid POST
