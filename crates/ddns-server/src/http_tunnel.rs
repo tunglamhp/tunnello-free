@@ -110,6 +110,25 @@ async fn serve_inner(
     stream_id: u32,
 ) -> Response {
     let debug_started = std::time::Instant::now();
+    let capture = session.http_options().debug_capture;
+    let captured_headers = if capture {
+        crate::debug_capture::redact_headers(
+            &req
+                .headers()
+                .iter()
+                .map(|(k, v)| {
+                    (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned())
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        Vec::new()
+    };
+    let captured_req: std::sync::Arc<parking_lot::Mutex<Vec<u8>>> = Default::default();
+    let captured_resp: std::sync::Arc<parking_lot::Mutex<Vec<u8>>> = Default::default();
+    // Cleanup-task handles first: the pumps below move their own clones.
+    let cleanup_req = captured_req.clone();
+    let cleanup_resp = captured_resp.clone();
     let debug_method = req.method().as_str().to_string();
     let debug_path = req
         .uri()
@@ -201,12 +220,20 @@ async fn serve_inner(
 
     // --- request body pump (visitor → client) --------------------------------
     let session2 = session.clone();
+    let captured_req = captured_req.clone();
     let body_pump = tokio::spawn(async move {
         let mut body = req.into_body();
         while let Some(Ok(frame)) = body.frame().await {
             let Ok(data) = frame.into_data() else {
                 continue;
             }; // trailers: dropped in v1
+            if capture {
+                let mut buf = captured_req.lock();
+                let room = crate::debug_capture::CAPTURE_LIMIT.saturating_sub(buf.len());
+                if room > 0 {
+                    buf.extend_from_slice(&data[..data.len().min(room)]);
+                }
+            }
             session2.record_tx(data.len());
             crate::metrics::bytes_total().inc_by(data.len() as u64);
             for chunk in data.chunks(DATA_CHUNK_MAX) {
@@ -363,12 +390,21 @@ async fn serve_inner(
     // Response body: DATA frames → streamed body; CLOSE ends it.
     let (body_tx, body_rx) = tokio::sync::mpsc::channel::<Bytes>(STREAM_QUEUE_CAP);
     let session3 = session.clone();
+    let captured_resp = captured_resp.clone();
     let forward = tokio::spawn(async move {
         while let Some(f) = from_client_rx.recv().await {
             match f.opcode {
                 Opcode::Data => {
                     session3.record_rx(f.payload.len());
                     crate::metrics::bytes_total().inc_by(f.payload.len() as u64);
+                    if capture {
+                        let mut buf = captured_resp.lock();
+                        let room =
+                            crate::debug_capture::CAPTURE_LIMIT.saturating_sub(buf.len());
+                        if room > 0 {
+                            buf.extend_from_slice(&f.payload[..f.payload.len().min(room)]);
+                        }
+                    }
                     if body_tx.send(f.payload).await.is_err() {
                         return;
                     }
@@ -398,27 +434,39 @@ async fn serve_inner(
     // deadlock once the client sends more than STREAM_QUEUE_CAP DATA frames —
     // nobody polls `body_rx` until the response is returned.
     let session4 = session.clone();
+    let status = resp.status().as_u16();
+    let captured_req = cleanup_req;
+    let captured_resp = cleanup_resp;
     tokio::spawn(async move {
         let _ = body_pump.await;
         let _ = forward.await;
+        // Record once both directions finish so captured bodies are complete.
+        let (req_body, resp_body) = if capture {
+            (
+                Some(crate::debug_capture::truncate_body(&captured_req.lock())),
+                Some(crate::debug_capture::truncate_body(&captured_resp.lock())),
+            )
+        } else {
+            (None, None)
+        };
+        session4.record_debug(crate::session::DebugEntry {
+            at_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            method: debug_method,
+            path: debug_path,
+            status,
+            duration_ms: debug_started.elapsed().as_millis() as u64,
+            bytes_tx: 0,
+            bytes_rx: 0,
+            peer_ip: debug_peer,
+            req_headers: captured_headers,
+            req_body,
+            resp_body,
+        });
         session4.streams.remove(&stream_id);
         session4.release_stream();
-    });
-    session.record_debug(crate::session::DebugEntry {
-        at_unix: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-        method: debug_method,
-        path: debug_path,
-        status: resp.status().as_u16(),
-        duration_ms: debug_started.elapsed().as_millis() as u64,
-        bytes_tx: 0,
-        bytes_rx: 0,
-        peer_ip: debug_peer,
-        req_headers: Vec::new(),
-        req_body: None,
-        resp_body: None,
     });
     resp
 }
