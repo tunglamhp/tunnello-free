@@ -113,11 +113,13 @@ async fn serve_inner(
     let capture = session.http_options().debug_capture;
     let captured_headers = if capture {
         crate::debug_capture::redact_headers(
-            &req
-                .headers()
+            &req.headers()
                 .iter()
                 .map(|(k, v)| {
-                    (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned())
+                    (
+                        k.as_str().to_string(),
+                        String::from_utf8_lossy(v.as_bytes()).into_owned(),
+                    )
                 })
                 .collect::<Vec<_>>(),
         )
@@ -399,8 +401,7 @@ async fn serve_inner(
                     crate::metrics::bytes_total().inc_by(f.payload.len() as u64);
                     if capture {
                         let mut buf = captured_resp.lock();
-                        let room =
-                            crate::debug_capture::CAPTURE_LIMIT.saturating_sub(buf.len());
+                        let room = crate::debug_capture::CAPTURE_LIMIT.saturating_sub(buf.len());
                         if room > 0 {
                             buf.extend_from_slice(&f.payload[..f.payload.len().min(room)]);
                         }

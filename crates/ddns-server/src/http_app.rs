@@ -278,6 +278,8 @@ pub fn router(state: BrokerState) -> Router {
         .route("/api/cert", get(api_cert))
         .route("/sessions/{slug}/kill", post(session_kill))
         .route("/debug/{slug}", get(debug_page))
+        .route("/debug/{slug}/replay", post(debug_replay))
+        .route("/debug/{slug}/body/{index}", get(debug_body))
         .route("/policies", get(policies_page).post(policies_submit))
         .route("/policies/{id}/delete", post(policies_delete));
 
@@ -1229,22 +1231,47 @@ async fn otp_verify(State(state): State<BrokerState>, Form(f): Form<OtpForm>) ->
     resp
 }
 
-/// Live request debugger for one tunnel (last 100 requests, metadata only).
+/// Live request debugger for one tunnel (last 100 requests; bodies only
+/// when the tunnel's `debug_capture` option is on).
 async fn debug_page(State(state): State<BrokerState>, Path(slug): Path<String>) -> Response {
     let Some(session) = state.registry.lookup(&slug) else {
         return crate::ui::flash_redirect("/", crate::ui::FlashKind::Error, "Session not found");
     };
     let entries = session.debug_snapshot();
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        debug_page_html(&slug, &entries, None),
+    )
+        .into_response()
+}
+
+/// Shared renderer: request table (+ body links + replay buttons) and an
+/// optional replay-result banner.
+fn debug_page_html(
+    slug: &str,
+    entries: &[crate::session::DebugEntry],
+    replay: Option<(u16, String)>,
+) -> String {
     let mut rows = String::new();
-    for e in entries.iter().rev() {
+    for (i, e) in entries.iter().enumerate() {
         let status_class = match e.status {
             200..=299 => "ok",
             400..=499 => "warn",
             _ => "err",
         };
+        let has_body = e.req_body.is_some() || e.resp_body.is_some();
+        let body_cell = if has_body {
+            format!("<a href=\"/debug/{slug}/body/{i}\">view</a>")
+        } else {
+            "&mdash;".to_string()
+        };
         rows.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td><td class=\"st {}\">{}</td>\
-             <td>{}ms</td><td>{} B ↑ / {} B ↓</td><td>{}</td></tr>",
+             <td>{}ms</td><td>{} B / {} B</td><td>{}</td><td>{}</td>\
+             <td><form method=\"post\" action=\"/debug/{slug}/replay\" class=\"replay-form\">\
+             <input type=\"hidden\" name=\"index\" value=\"{i}\">\
+             <button title=\"Replay this request\">Replay</button></form></td></tr>",
             e.at_unix,
             e.method,
             html_escape(&e.path),
@@ -1254,25 +1281,148 @@ async fn debug_page(State(state): State<BrokerState>, Path(slug): Path<String>) 
             e.bytes_tx,
             e.bytes_rx,
             html_escape(&e.peer_ip),
+            body_cell,
         ));
     }
     if rows.is_empty() {
-        rows = "<tr><td colspan=\"8\">No requests recorded yet.</td></tr>".into();
+        rows = "<tr><td colspan=\"9\">No requests recorded yet.</td></tr>".into();
     }
-    let html = format!(
+    let banner = match replay {
+        Some((status, body)) => format!(
+            "<div class=\"replay-banner\"><strong>Replay: {status}</strong>\
+             <pre>{}</pre></div>",
+            html_escape(&body)
+        ),
+        None => String::new(),
+    };
+    format!(
         "<!DOCTYPE html><html><head><title>Debug {slug}</title><style>\
          body{{font-family:system-ui;margin:2rem;background:#0f172a;color:#e2e8f0}}\
          table{{border-collapse:collapse;width:100%}}\
          th,td{{padding:.5rem .75rem;border-bottom:1px solid #1e293b;text-align:left}}\
          th{{color:#94a3b8;font-weight:600}}\
          .st.ok{{color:#4ade80}}.st.warn{{color:#fbbf24}}.st.err{{color:#f87171}}\
-         a{{color:#60a5fa}}</style></head><body>\
-         <h1>🔍 Debug: {slug}</h1>\
-         <p><a href=\"/\">← Dashboard</a> · last {} requests, newest first</p>\
+         a{{color:#60a5fa}}\
+         .replay-form{{display:inline}}\
+         button{{background:#2563eb;color:#fff;border:0;border-radius:4px;padding:.25rem .6rem;cursor:pointer}}\
+         .replay-banner{{background:#1e293b;border:1px solid #2563eb;border-radius:6px;padding:1rem;margin-bottom:1rem}}\
+         pre{{white-space:pre-wrap;word-break:break-all;color:#94a3b8}}\
+         </style></head><body>\
+         <h1>Debug: {slug}</h1>\
+         {banner}\
+         <p><a href=\"/\">Back to Dashboard</a> | last {} requests, oldest first \
+         | bodies appear when the tunnel's debug-capture option is on</p>\
          <table><tr><th>Time (unix)</th><th>Method</th><th>Path</th><th>Status</th>\
-         <th>Duration</th><th>Bytes</th><th>Peer IP</th></tr>{}</table></body></html>",
+         <th>Duration</th><th>Bytes</th><th>Peer IP</th><th>Body</th><th>Replay</th></tr>{}</table>\
+         </body></html>",
         entries.len(),
         rows,
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct ReplayForm {
+    index: usize,
+}
+
+/// Re-send a captured request through its tunnel (operator-only route).
+async fn debug_replay(
+    State(state): State<BrokerState>,
+    Path(slug): Path<String>,
+    Form(f): Form<ReplayForm>,
+) -> Response {
+    let Some(session) = state.registry.lookup(&slug) else {
+        return crate::ui::flash_redirect("/", crate::ui::FlashKind::Error, "Session not found");
+    };
+    let entries = session.debug_snapshot();
+    let Some(entry) = entries.get(f.index) else {
+        return crate::ui::flash_redirect(
+            &format!("/debug/{slug}"),
+            crate::ui::FlashKind::Error,
+            "Entry no longer in the ring",
+        );
+    };
+    // Rebuild the request from captured data. Sensitive headers arrive as
+    // [REDACTED] — replaying them is safe (the backend sees the marker).
+    let host = format!("{slug}.{}", state.config.domain);
+    let mut builder = axum::http::Request::builder()
+        .method(entry.method.as_str())
+        .uri(entry.path.as_str())
+        .header(axum::http::header::HOST, &host);
+    for (k, v) in &entry.req_headers {
+        if k.eq_ignore_ascii_case("host") || k.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+        builder = builder.header(k.as_str(), v.as_str());
+    }
+    let body = entry.req_body.clone().unwrap_or_default();
+    let req = match builder.body(Body::from(body)) {
+        Ok(r) => r,
+        Err(e) => {
+            return crate::ui::flash_redirect(
+                &format!("/debug/{slug}"),
+                crate::ui::FlashKind::Error,
+                &format!("replay build failed: {e}"),
+            );
+        }
+    };
+    let peer: std::net::SocketAddr = session
+        .peer_ip()
+        .map(|ip| std::net::SocketAddr::new(ip, 0))
+        .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap());
+    let resp =
+        crate::http_tunnel::serve_tunnel(req, session.clone(), peer, state.quota.as_ref(), None)
+            .await;
+    let status = resp.status();
+    let preview =
+        match axum::body::to_bytes(resp.into_body(), crate::debug_capture::CAPTURE_LIMIT).await {
+            Ok(b) => crate::debug_capture::truncate_body(&b),
+            Err(e) => format!("<body read failed: {e}>"),
+        };
+    let entries = session.debug_snapshot();
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        debug_page_html(&slug, &entries, Some((status.as_u16(), preview))),
+    )
+        .into_response()
+}
+
+/// Captured headers + bodies for one entry (operator-only).
+async fn debug_body(
+    State(state): State<BrokerState>,
+    Path((slug, index)): Path<(String, usize)>,
+) -> Response {
+    let Some(session) = state.registry.lookup(&slug) else {
+        return crate::ui::flash_redirect("/", crate::ui::FlashKind::Error, "Session not found");
+    };
+    let entries = session.debug_snapshot();
+    let Some(e) = entries.get(index) else {
+        return crate::ui::flash_redirect(
+            &format!("/debug/{slug}"),
+            crate::ui::FlashKind::Error,
+            "Entry no longer in the ring",
+        );
+    };
+    let mut headers_html = String::new();
+    for (k, v) in &e.req_headers {
+        headers_html.push_str(&format!("{}: {}\n", html_escape(k), html_escape(v)));
+    }
+    let html = format!(
+        "<!DOCTYPE html><html><head><title>Body {slug} #{index}</title><style>\
+         body{{font-family:system-ui;margin:2rem;background:#0f172a;color:#e2e8f0}}\
+         h2{{color:#94a3b8}}pre{{white-space:pre-wrap;word-break:break-all;background:#1e293b;\
+         padding:1rem;border-radius:6px}}a{{color:#60a5fa}}</style></head><body>\
+         <h1>{} {}</h1>\
+         <p><a href=\"/debug/{slug}\">Back to Debug</a></p>\
+         <h2>Request headers (redacted)</h2><pre>{headers_html}</pre>\
+         <h2>Request body</h2><pre>{}</pre>\
+         <h2>Response body</h2><pre>{}</pre>\
+         </body></html>",
+        html_escape(&e.method),
+        html_escape(&e.path),
+        html_escape(e.req_body.as_deref().unwrap_or("(not captured)")),
+        html_escape(e.resp_body.as_deref().unwrap_or("(not captured)")),
     );
     (
         StatusCode::OK,

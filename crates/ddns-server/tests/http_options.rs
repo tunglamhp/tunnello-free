@@ -264,5 +264,8 @@ fn otp_gate_redirects_without_cookie() {
 #[test]
 fn debug_capture_defaults_off() {
     let opts: HttpOptions = serde_json::from_str("{}").unwrap();
-    assert!(!opts.debug_capture, "absent debug_capture must parse as false");
+    assert!(
+        !opts.debug_capture,
+        "absent debug_capture must parse as false"
+    );
 }
