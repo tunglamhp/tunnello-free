@@ -24,6 +24,9 @@ visitor ──https──▶ Tunello broker ◀──wss── ddns-client ─�
 
 ## Features
 
+- [Service Templates](docs/SERVICE-TEMPLATES.md) — pre-configured tunnel profiles (SSH, RDP, MySQL, Home Assistant, Plex, MQTT...)
+- [Device Guides](docs/DEVICE-GUIDES.md) — step-by-step setup for Raspberry Pi, Synology NAS, Windows, macOS, Docker, Home Assistant
+
 - **One-line tunnel** — `curl -sSL "https://host/install.sh?code=sc_xxx&port=8080" | sh`
   installs the client and opens the tunnel; the raw token secret never leaves the broker.
 - **HTTP + TCP forwarding** — one HTTP and one TCP target per session; stable public
