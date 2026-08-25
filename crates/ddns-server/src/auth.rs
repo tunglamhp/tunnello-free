@@ -163,6 +163,8 @@ pub fn is_public_path(path: &str) -> bool {
     matches!(
         path,
         "/connect"
+            | "/health"
+            | "/api/version"
             | "/login"
             | "/setup"
             | "/logout"
