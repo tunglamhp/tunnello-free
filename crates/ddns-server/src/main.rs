@@ -323,7 +323,7 @@ async fn run() -> Result<(), String> {
         public_port: opts.public_port,
         udp_port: opts.udp_port,
         udp_routes: opts.udp_routes,
-        oidc: crate::auth_oidc::OidcConfig::from_env(),
+        oidc: ddns_server::auth_oidc::OidcConfig::from_env(),
         udp_target_port: 0,
         tls_cert_pem,
         tls_key_pem,

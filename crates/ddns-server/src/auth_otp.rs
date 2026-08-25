@@ -76,7 +76,7 @@ impl OtpStore {
                 return Err("too many codes requested; wait a minute".into());
             }
             entry.sends.push(Instant::now());
-            let code = format!("{:06}", rand::Rng::gen_range(&mut rand::rng(), 0..1_000_000));
+            let code = format!("{:06}", rand::Rng::random_range(&mut rand::rng(), 0..1_000_000));
             entry.code_hash = Sha256::digest(code.as_bytes()).into();
             entry.exp = Instant::now() + CODE_TTL;
             entry.attempts = 0;
