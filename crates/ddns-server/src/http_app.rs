@@ -2118,6 +2118,7 @@ fn tune_options_html(o: &HttpOptions) -> String {
   <div class="form-group"><label>PIN code</label><input name="options_pin_auth" value="{pa}" placeholder="4-8 digit PIN"></div>
   <div class="form-group"><label>Require OIDC login</label><input type="checkbox" name="options_oidc_auth" {oc}></div>
   <div class="form-group"><label>Require email OTP</label><input type="checkbox" name="options_email_otp" {eo}></div>
+  <div class="form-group"><label>Debug body capture (privacy-sensitive)</label><input type="checkbox" name="options_debug_capture" {dc}></div>
   <div class="form-group"><label>Host rewrite (backend Host)</label><input name="options_host_rewrite" value="{hr}" placeholder="backend.example.com"></div>
   <div class="form-group"><label>Add headers (Name: Value per line)</label><textarea name="options_add_headers">{ah}</textarea></div>
   <div class="form-group"><label>Remove headers (one per line)</label><textarea name="options_remove_headers">{rh}</textarea></div>
@@ -2131,6 +2132,7 @@ fn tune_options_html(o: &HttpOptions) -> String {
         pa = html_escape(o.pin_auth.as_deref().unwrap_or("")),
         oc = if o.oidc_auth { "checked" } else { "" },
         eo = if o.email_otp { "checked" } else { "" },
+        dc = if o.debug_capture { "checked" } else { "" },
         hr = html_escape(o.host_rewrite.as_deref().unwrap_or("")),
         ah = html_escape(
             &o.add_headers

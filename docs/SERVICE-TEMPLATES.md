@@ -171,6 +171,11 @@ bodies). Open it from the dashboard session table → **Debug**, or directly at
 
 Shows: time, method, path, status, duration, peer IP.
 
+**Body capture + replay** (off by default): enable **Debug body capture** in
+the tunnel's Options to record request/response bodies (first 4 KiB,
+`Authorization`/`Cookie` headers redacted). The debug page then offers
+per-request **Replay** to re-send a captured request through the tunnel.
+
 ---
 
 ## Resource Policies (option presets)
