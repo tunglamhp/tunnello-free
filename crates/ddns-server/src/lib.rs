@@ -12,6 +12,7 @@ pub mod auth_oidc;
 pub mod auth_otp;
 pub mod config;
 pub mod connector;
+pub mod debug_capture;
 pub mod domain;
 pub mod hot;
 pub mod http_app;
