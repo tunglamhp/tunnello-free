@@ -1965,6 +1965,8 @@ fn tune_options_html(o: &HttpOptions) -> String {
   <div class="form-group"><label>Basic auth password</label><input name="options_basic_pass" type="password" value="{bp}" placeholder="password"></div>
   <div class="form-group"><label>Key auth (Bearer)</label><input name="options_key_auth" value="{ka}" placeholder="secret-token"></div>
   <div class="form-group"><label>PIN code</label><input name="options_pin_auth" value="{pa}" placeholder="4-8 digit PIN"></div>
+  <div class="form-group"><label>Require OIDC login</label><input type="checkbox" name="options_oidc_auth" {oc}></div>
+  <div class="form-group"><label>Require email OTP</label><input type="checkbox" name="options_email_otp" {eo}></div>
   <div class="form-group"><label>Host rewrite (backend Host)</label><input name="options_host_rewrite" value="{hr}" placeholder="backend.example.com"></div>
   <div class="form-group"><label>Add headers (Name: Value per line)</label><textarea name="options_add_headers">{ah}</textarea></div>
   <div class="form-group"><label>Remove headers (one per line)</label><textarea name="options_remove_headers">{rh}</textarea></div>
@@ -1976,6 +1978,8 @@ fn tune_options_html(o: &HttpOptions) -> String {
         bp = html_escape(o.basic_auth.as_ref().map(|(_, p)| p.as_str()).unwrap_or("")),
         ka = html_escape(o.key_auth.as_deref().unwrap_or("")),
         pa = html_escape(o.pin_auth.as_deref().unwrap_or("")),
+        oc = if o.oidc_auth { "checked" } else { "" },
+        eo = if o.email_otp { "checked" } else { "" },
         hr = html_escape(o.host_rewrite.as_deref().unwrap_or("")),
         ah = html_escape(
             &o.add_headers

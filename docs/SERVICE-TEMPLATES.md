@@ -154,6 +154,8 @@ Other per-tunnel protections available in Options:
 | Basic auth | `WWW-Authenticate: Basic` username/password prompt |
 | Key auth (Bearer) | Requires `Authorization: Bearer <secret>` header |
 | PIN code | Browser PIN entry page + 24h cookie session |
+| OIDC login | Requires broker OIDC env; visitor logs in via your identity provider |
+| Email OTP | Visitor receives a 6-digit code by email before access |
 | IP whitelist | Only listed IPs/CIDRs may connect |
 | Add/remove headers | Rewrite request headers before forwarding |
 
