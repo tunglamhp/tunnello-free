@@ -47,6 +47,8 @@ pub struct BrokerConfig {
     /// Dedicated per-slug UDP ports: (slug, port). Each binds its own socket;
     /// datagrams route to the named slug's session without a prefix.
     pub udp_routes: Vec<(String, u16)>,
+    /// Generic OIDC provider (visitor auth). `None` → `/__auth/oidc/*` 503.
+    pub oidc: Option<crate::auth_oidc::OidcConfig>,
     /// PEM-encoded certificate chain. Must be empty when `acme` is `Some`.
     pub tls_cert_pem: Vec<u8>,
     /// PEM-encoded private key. Must be empty when `acme` is `Some`.
@@ -95,6 +97,7 @@ impl Default for BrokerConfig {
             udp_port: 0,
             udp_target_port: 0,
             udp_routes: Vec::new(),
+            oidc: None,
             tls_cert_pem: Vec::new(),
             tls_key_pem: Vec::new(),
             token_store: TokenStore::new(),
