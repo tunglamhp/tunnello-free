@@ -64,13 +64,37 @@ impl VisitorWgConfig {
     }
 }
 
+/// Per-peer pre-shared key: zeroized on drop, redacted in Debug.
+#[derive(Clone)]
+pub struct Psk(pub [u8; 32]);
+
+impl std::fmt::Debug for Psk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Psk(<redacted>)")
+    }
+}
+
+impl Drop for Psk {
+    fn drop(&mut self) {
+        for b in self.0.iter_mut() {
+            *b = 0;
+        }
+    }
+}
+
+impl From<[u8; 32]> for Psk {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
 /// Exit-side per-visitor peer.
 #[derive(Debug, Clone)]
 pub struct ExitPeerConfig {
     pub visitor_pubkey_b64: String,
     pub visitor_tunnel_ip: Ipv4Addr,
     /// Per-peer pre-shared key (post-quantum resistance; research §1.3).
-    pub psk: [u8; 32],
+    pub psk: Psk,
 }
 
 impl ExitPeerConfig {
@@ -78,12 +102,12 @@ impl ExitPeerConfig {
     /// (cryptokey routing: /32, never broader — research §1.2).
     pub fn render_wg_set_peer(&self) -> String {
         use base64::Engine as _;
-        let pk =
-            base64::engine::general_purpose::STANDARD.encode(self.visitor_pubkey_b64.as_bytes());
-        let psk = base64::engine::general_purpose::STANDARD.encode(self.psk);
+        // visitor_pubkey_b64 IS already base64 — pass through verbatim
+        // (double-encoding produced garbage peer keys; verifier finding #2).
+        let psk = base64::engine::general_purpose::STANDARD.encode(self.psk.0);
         format!(
-            "wg set wg0 peer {pk} allowed-ips {}/32 preshared-key {psk}",
-            self.visitor_tunnel_ip
+            "wg set wg0 peer {} allowed-ips {}/32 preshared-key {psk}",
+            self.visitor_pubkey_b64, self.visitor_tunnel_ip
         )
     }
 

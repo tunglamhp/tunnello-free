@@ -47,11 +47,21 @@ impl PublicKey {
         let bytes: [u8; 32] = raw.try_into().ok()?;
         Some(Self(bytes))
     }
+
+    /// Convert to boringtun's session public key.
+    pub fn to_boringtun_public(&self) -> boringtun::x25519::PublicKey {
+        boringtun::x25519::PublicKey::from(self.0)
+    }
 }
 
 impl PrivateKey {
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
+    }
+
+    /// Convert to boringtun's session secret (same x25519-dalek types).
+    pub fn to_boringtun_secret(&self) -> boringtun::x25519::StaticSecret {
+        StaticSecret::from(self.0.to_bytes())
     }
 
     /// Derive the matching public key.
