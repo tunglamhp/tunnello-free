@@ -15,6 +15,7 @@ pub mod reconnect;
 pub mod targets;
 mod udp;
 pub mod wg;
+pub mod wg_up;
 use std::time::Duration;
 
 use rustls::pki_types::CertificateDer;

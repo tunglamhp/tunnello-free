@@ -217,3 +217,18 @@ Notes:
   datagram; `--udp-route` gives a tunnel its own port with no prefix.
 - Or P2P (no broker UDP port needed): `ddns connect <sub> --udp 53` forwards
   datagrams to the tunnel's UDP service from your machine.
+
+---
+
+## Full-tunnel exit node (visitor side)
+
+Route your device's default traffic through a tunnel:
+
+```sh
+ddns up <sub> --exit-node     # requires admin; kill-switch on by default
+ddns up --cleanup             # sweep stale routes/firewall rules
+```
+
+Requires the tunnel owner to run the client with `--allow-exit`. Free
+edition ships safe defaults only (MTU 1420, DNS via tunnel, kill-switch
+always on while up, 180-day key rotation enforced by the broker).

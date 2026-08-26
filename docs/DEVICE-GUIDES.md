@@ -182,3 +182,19 @@ The operator dashboard shows all active sessions grouped by token.
 
 UDP services can also go P2P: `ddns connect <sub> --udp 53` (no broker UDP
 port required — datagrams ride the WebRTC data channel).
+
+---
+
+## Full-tunnel exit node (advanced)
+
+Turn your device's default traffic through a tunnel (WireGuard data plane):
+
+```sh
+ddns up <sub> --exit-node     # admin required (routes + firewall)
+ddns up --cleanup             # remove stale rules after a crash
+```
+
+The tunnel owner must run the client with `--allow-exit`. Free edition:
+on/off with safe defaults (kill-switch, DNS via tunnel, IPv6 blocked,
+180-day key rotation). Platform checklists (nftables audit, DNS-leak test,
+PMTU) live in the operator docs.

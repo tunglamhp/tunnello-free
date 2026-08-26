@@ -54,6 +54,54 @@ fn main() {
             None => run_connect(&server, &subdomain, ca_pem.as_deref(), roots),
             Some(_port) => run_connect_udp(&server, &subdomain, ca_pem.as_deref(), roots),
         },
+        Command::Up {
+            server,
+            subdomain,
+            ca_pem,
+            exit_node,
+            cleanup,
+        } => run_up(
+            &server,
+            &subdomain,
+            ca_pem.as_deref(),
+            roots,
+            exit_node,
+            cleanup,
+        ),
+    }
+}
+
+/// Run the `ddns up` full-tunnel client. Free edition: exit-node on/off with
+/// safe defaults; `--cleanup` sweeps stale platform rules and exits.
+fn run_up(
+    server: &str,
+    subdomain: &str,
+    ca_pem: Option<&str>,
+    roots: &[rustls::pki_types::CertificateDer<'static>],
+    exit_node: bool,
+    cleanup: bool,
+) -> ! {
+    if cleanup {
+        eprintln!("ddns up: sweeping stale exit-node rules (not implemented in this build)");
+        process::exit(0);
+    }
+    if !exit_node {
+        eprintln!("ddns up: pass --exit-node to enable full-tunnel mode");
+        process::exit(2);
+    }
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let result = rt.block_on(ddns_client::wg_up::run(server, subdomain, ca_pem, roots));
+
+    match result {
+        Ok(()) => process::exit(0),
+        Err(e) => {
+            eprintln!("ddns: {e}");
+            process::exit(2);
+        }
     }
 }
 

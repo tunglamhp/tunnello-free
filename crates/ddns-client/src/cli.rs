@@ -48,6 +48,16 @@ pub enum Command {
         /// service over a `"udp"`-labeled P2P data channel (None = TCP mode).
         udp: Option<u16>,
     },
+    /// `ddns up --exit-node` — full-tunnel client over WireGuard.
+    Up {
+        server: String,
+        subdomain: String,
+        ca_pem: Option<String>,
+        /// `--exit-node` flag present (the only free-edition form: on/off).
+        exit_node: bool,
+        /// `--cleanup`: sweep stale routes/firewall rules and exit.
+        cleanup: bool,
+    },
 }
 
 /// Sentinal returned by `parse` when `--help` is requested.
@@ -238,11 +248,69 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
 ///
 /// Callers pass `&args[1..]` (argv without the program name).
 pub fn parse_command(args: &[String]) -> Result<Command, String> {
-    if args.first().map(String::as_str) == Some("connect") {
-        parse_connect(&args[1..])
-    } else {
-        Ok(Command::Tunnel(parse(args)?))
+    match args.first().map(String::as_str) {
+        Some("connect") => parse_connect(&args[1..]),
+        Some("up") => parse_up(&args[1..]),
+        _ => Ok(Command::Tunnel(parse(args)?)),
     }
+}
+
+/// Parse the `up` tail: `<target> [--exit-node] [--cleanup] [--ca-pem PATH]`.
+fn parse_up(args: &[String]) -> Result<Command, String> {
+    let mut target: Option<String> = None;
+    let mut ca_pem: Option<String> = None;
+    let mut exit_node = false;
+    let mut cleanup = false;
+    let mut i = 0;
+
+    while i < args.len() {
+        let flag = &args[i];
+        match flag.as_str() {
+            "--exit-node" => exit_node = true,
+            "--cleanup" => cleanup = true,
+            "--ca-pem" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(format!("flag {flag} requires a value"));
+                }
+                ca_pem = Some(args[i].clone());
+            }
+            "--help" => return Err(HELP_SENTINEL.to_string()),
+            other if other.starts_with('-') => {
+                // Free edition: no tuning flags (repo split rule).
+                return Err(format!("unknown flag {other}"));
+            }
+            other => {
+                if target.is_some() {
+                    return Err("up accepts a single target".to_string());
+                }
+                target = Some(other.to_string());
+            }
+        }
+        i += 1;
+    }
+
+    if cleanup {
+        // `up --cleanup` sweeps stale platform rules — no tunnel target.
+        return Ok(Command::Up {
+            server: String::new(),
+            subdomain: String::new(),
+            ca_pem,
+            exit_node: false,
+            cleanup: true,
+        });
+    }
+    let target = target.ok_or_else(|| {
+        "up requires a target (subdomain or https://sub.domain[:port])".to_string()
+    })?;
+    let (subdomain, server) = parse_connect_target(&target)?;
+    Ok(Command::Up {
+        server,
+        subdomain,
+        ca_pem,
+        exit_node,
+        cleanup,
+    })
 }
 
 /// Parse the `connect` tail: `<target> [--ca-pem PATH]`.
