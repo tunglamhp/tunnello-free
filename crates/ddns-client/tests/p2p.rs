@@ -9,7 +9,8 @@ use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use ddns_client::p2p::{
-    OP_CLOSE, OP_DATA, OP_REQ, OP_RESP, P2pGateway, decode_frame, encode_frame,
+    BridgeMode, OP_CLOSE, OP_DATA, OP_REQ, OP_RESP, P2pGateway, bridge_for_label, decode_frame,
+    encode_frame, strip_slug_prefix,
 };
 use ddns_client::targets::LocalTarget;
 use webrtc::data_channel::DataChannelEvent;
@@ -251,4 +252,20 @@ async fn gateway_bridges_tcp_channel_multiple_streams() {
     assert_eq!(got2, b"hello-2".to_vec());
 
     let _ = a.close().await;
+}
+
+#[test]
+fn udp_label_maps_to_udp_bridge() {
+    assert!(matches!(bridge_for_label("udp"), BridgeMode::Udp));
+    assert!(matches!(bridge_for_label("tcp"), BridgeMode::Tcp));
+    assert!(!matches!(bridge_for_label("http"), BridgeMode::Udp));
+}
+
+#[test]
+fn strip_slug_prefix_strips_only_matching() {
+    assert_eq!(strip_slug_prefix(b"myslug\nping", "myslug"), b"ping");
+    assert_eq!(strip_slug_prefix(b"other\nping", "myslug"), b"other\nping");
+    assert_eq!(strip_slug_prefix(b"ping", "myslug"), b"ping");
+    // partial prefix (slug without newline) must NOT strip
+    assert_eq!(strip_slug_prefix(b"myslug", "myslug"), b"myslug");
 }

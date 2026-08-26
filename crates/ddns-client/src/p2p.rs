@@ -43,16 +43,27 @@ pub const MAX_P2P_FRAME: usize = 1 << 20;
 pub enum BridgeMode {
     Http,
     Tcp,
+    Udp,
 }
 
 /// Map a data-channel label to its bridge mode. Anything other than `"tcp"`
-/// is the HTTP bridge (browser connector).
+/// or `"udp"` is the HTTP bridge (browser connector).
 pub fn bridge_for_label(label: &str) -> BridgeMode {
-    if label == "tcp" {
-        BridgeMode::Tcp
-    } else {
-        BridgeMode::Http
+    match label {
+        "tcp" => BridgeMode::Tcp,
+        "udp" => BridgeMode::Udp,
+        _ => BridgeMode::Http,
     }
+}
+
+/// Strip a leading `<slug>\n` (the visitor helper's shared-port routing
+/// prefix). Returns the input unchanged when the prefix does not match.
+pub fn strip_slug_prefix<'a>(datagram: &'a [u8], slug: &str) -> &'a [u8] {
+    let mut expected = slug.as_bytes().to_vec();
+    expected.push(b'\n');
+    datagram
+        .strip_prefix(expected.as_slice())
+        .unwrap_or(datagram)
 }
 
 /// A decoded data-channel frame (`opcode ‖ u32 request_id ‖ payload`).
@@ -214,6 +225,7 @@ impl P2pGateway {
             let _ = match mode {
                 BridgeMode::Http => bridge_channel(dc, target, tx_count, rx_count, sub).await,
                 BridgeMode::Tcp => bridge_tcp_channel(dc, target, tx_count, rx_count, sub).await,
+                BridgeMode::Udp => bridge_udp_channel(dc, target, tx_count, rx_count, sub).await,
             };
         });
 
@@ -289,6 +301,117 @@ async fn bridge_channel(
     let _ = send_frame(&dc, OP_CLOSE, request_id, &[]).await;
     tracing::info!(%subdomain, "p2p visitor left");
     result
+}
+
+/// Bridge one `"udp"`-labeled data channel to the tunnel's local UDP target.
+/// Datagram semantics over the REQ/DATA/CLOSE framing: empty `REQ` announces
+/// a flow (`request_id` = flow id), `DATA` carries one datagram verbatim,
+/// `CLOSE` ends the flow. The visitor helper prepends `<slug>\n` to each
+/// flow's first datagram (shared-port routing wire format); this bridge
+/// strips exactly that prefix before forwarding to the local service, so
+/// generic UDP services see clean datagrams.
+async fn bridge_udp_channel(
+    dc: Arc<dyn DataChannel>,
+    target: LocalTarget,
+    tx_count: Arc<AtomicU64>,
+    rx_count: Arc<AtomicU64>,
+    subdomain: String,
+) -> Result<(), String> {
+    // Wait for the channel to open.
+    loop {
+        match dc.poll().await {
+            Some(DataChannelEvent::OnOpen) => break,
+            Some(DataChannelEvent::OnClose) | None => return Ok(()),
+            _ => {}
+        }
+    }
+    tracing::info!(%subdomain, "p2p udp visitor joined");
+
+    if target.kind != ddns_proto::StreamKind::Udp {
+        return Err(format!(
+            "udp bridge requires a udp target, got {:?}",
+            target.kind
+        ));
+    }
+    let udp_addr = format!("{}:{}", target.host, target.port);
+
+    let mut flows: HashMap<u32, Arc<tokio::net::UdpSocket>> = HashMap::new();
+    // Upstream readers push (flow_id, datagram) here; the select loop below
+    // emits DATA frames (a task cannot push into its own JoinSet).
+    let (up_tx, mut up_rx) = tokio::sync::mpsc::unbounded_channel::<(u32, Vec<u8>)>();
+
+    loop {
+        tokio::select! {
+            Some((flow_id, datagram)) = up_rx.recv() => {
+                tx_count.fetch_add(datagram.len() as u64, Ordering::Relaxed);
+                send_frame(&dc, OP_DATA, flow_id, &datagram).await?;
+            }
+            ev = dc.poll() => match ev {
+                Some(DataChannelEvent::OnMessage(msg)) if !msg.is_string => {
+                    let Some(frame) = decode_frame(&msg.data) else { continue; };
+                    match frame.opcode {
+                        OP_REQ if frame.payload.is_empty() => {
+                            let id = frame.request_id;
+                            if flows.contains_key(&id) {
+                                continue;
+                            }
+                            let sock = match tokio::net::UdpSocket::bind("127.0.0.1:0").await {
+                                Ok(s) => Arc::new(s),
+                                Err(e) => {
+                                    tracing::warn!(flow = id, error = %e, "udp bind failed");
+                                    send_frame(&dc, OP_CLOSE, id, &[]).await?;
+                                    continue;
+                                }
+                            };
+                            if let Err(e) = sock.connect(&udp_addr).await {
+                                tracing::warn!(flow = id, %udp_addr, error = %e, "udp connect failed");
+                                send_frame(&dc, OP_CLOSE, id, &[]).await?;
+                                continue;
+                            }
+                            flows.insert(id, sock.clone());
+                            // Upstream reader: local socket → DATA frames.
+                            let up_tx = up_tx.clone();
+                            let rx = rx_count.clone();
+                            tokio::spawn(async move {
+                                let mut buf = vec![0u8; 65_535];
+                                loop {
+                                    match sock.recv(&mut buf).await {
+                                        Ok(0) | Err(_) => break,
+                                        Ok(n) => {
+                                            rx.fetch_add(n as u64, Ordering::Relaxed);
+                                            if up_tx.send((id, buf[..n].to_vec())).is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        OP_DATA => {
+                            let Some(sock) = flows.get(&frame.request_id) else {
+                                continue;
+                            };
+                            let payload = strip_slug_prefix(&frame.payload, &subdomain);
+                            rx_count.fetch_add(payload.len() as u64, Ordering::Relaxed);
+                            if sock.send(payload).await.is_err() {
+                                flows.remove(&frame.request_id);
+                                send_frame(&dc, OP_CLOSE, frame.request_id, &[]).await?;
+                            }
+                        }
+                        OP_CLOSE => {
+                            flows.remove(&frame.request_id);
+                        }
+                        _ => {}
+                    }
+                }
+                Some(DataChannelEvent::OnClose) | None => {
+                    tracing::info!(%subdomain, "p2p udp visitor left");
+                    return Ok(());
+                }
+                _ => {}
+            },
+        }
+    }
 }
 
 /// Maximum number of concurrent TCP streams multiplexed over one channel.

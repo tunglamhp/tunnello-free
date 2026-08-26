@@ -31,10 +31,11 @@ impl LocalTarget {
     pub fn from_url(url: &str) -> Result<Self, String> {
         let (scheme, rest) = url
             .split_once("://")
-            .ok_or("target must be http://host:port or tcp://host:port")?;
+            .ok_or("target must be http://host:port, tcp://host:port, or udp://host:port")?;
         let kind = match scheme {
             "http" => StreamKind::Http,
             "tcp" => StreamKind::Tcp,
+            "udp" => StreamKind::Udp,
             _ => return Err(format!("unknown scheme {scheme:?}")),
         };
         let (host, port) = if rest.starts_with('[') {
