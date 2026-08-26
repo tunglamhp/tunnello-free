@@ -5,11 +5,11 @@
 use x25519_dalek::{PublicKey as DalekPk, StaticSecret};
 
 /// A generated WireGuard private key (keep on-device).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PrivateKey(StaticSecret);
 
 /// The matching public key (safe to signal).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PublicKey([u8; 32]);
 
 impl PublicKey {
