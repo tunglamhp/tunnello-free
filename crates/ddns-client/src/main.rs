@@ -113,6 +113,7 @@ fn run_connect(
 /// escape sequences before the next block so a reconnected subdomain replaces
 /// the stale one on screen (spec §8 "clears terminal state between"). Only
 /// clears on a real terminal; piped output stays a plain log.
+static PENDING_LINES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Run the `ddns connect --udp` native-visitor helper (same exit contract as
 /// [`run_connect`]).
@@ -139,8 +140,6 @@ fn run_connect_udp(
         }
     }
 }
-
-static PENDING_LINES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn clear_pending_lines() {
     use std::io::IsTerminal;
