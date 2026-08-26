@@ -215,3 +215,5 @@ Notes:
 - Datagrams up to 64 KiB; larger ones are dropped (like real UDP).
 - Multi-tenant: the shared port routes by the `<slug>` prefix on the first
   datagram; `--udp-route` gives a tunnel its own port with no prefix.
+- Or P2P (no broker UDP port needed): `ddns connect <sub> --udp 53` forwards
+  datagrams to the tunnel's UDP service from your machine.

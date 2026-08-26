@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use ddns_client::connect_p2p::{bind_listener, connect_p2p_channel, run_pumps};
+use ddns_client::connect_p2p::{
+    bind_listener, bind_udp_socket, connect_p2p_channel, connect_p2p_channel_labeled, run_pumps,
+    run_udp_pumps,
+};
 use ddns_client::p2p::P2pGateway;
 use ddns_client::targets::LocalTarget;
 
@@ -73,6 +76,74 @@ async fn connect_p2p_round_trips_tcp() {
         .expect("timed out waiting for echoed bytes")
         .unwrap();
     assert_eq!(&buf[..n], b"hi");
+
+    let _ = pc.close().await;
+    pumps.abort();
+}
+
+#[tokio::test]
+async fn connect_p2p_round_trips_udp() {
+    // --- Local UDP echo -----------------------------------------------------
+    let echo = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let echo_addr = echo.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buf = [0u8; 65_535];
+        loop {
+            if let Ok((n, peer)) = echo.recv_from(&mut buf).await {
+                let _ = echo.send_to(&buf[..n], peer).await;
+            }
+        }
+    });
+
+    // --- Helper side: channel labeled "udp", loopback-paired ----------------
+    let target = LocalTarget::from_url(&format!("udp://127.0.0.1:{}", echo_addr.port())).unwrap();
+    let ticket = ddns_proto::ticket::issue_ticket(&[0u8; 32], "vivid-otter-72");
+    let (pc, dc) = connect_p2p_channel_labeled("udp", move |offer_sdp| {
+        let target = target.clone();
+        let ticket = ticket.clone();
+        async move {
+            let mut seen = std::collections::HashSet::new();
+            let answer = P2pGateway::handle_visitor_offer(
+                P2pGateway::new(),
+                [0u8; 32],
+                "vivid-otter-72",
+                &target,
+                &ticket,
+                &offer_sdp,
+                &[],
+                &mut seen,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok::<String, String>(answer.sdp)
+        }
+    })
+    .await
+    .expect("channel negotiation");
+
+    // --- Helper's local UDP socket + pumps ----------------------------------
+    let (sock, port) = bind_udp_socket("vivid-otter-72").await.unwrap();
+    let pumps = tokio::spawn(run_udp_pumps(
+        pc.clone(),
+        dc.clone(),
+        sock,
+        "vivid-otter-72".to_string(),
+    ));
+
+    // --- Native visitor: one datagram in, the echo back out -----------------
+    let visitor = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    visitor
+        .send_to(b"dns-query", ("127.0.0.1", port))
+        .await
+        .unwrap();
+    let mut buf = [0u8; 65_535];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(10), visitor.recv_from(&mut buf))
+        .await
+        .expect("timed out waiting for echoed datagram")
+        .unwrap();
+    // The gateway bridge strips the helper's <slug>\n prefix, so the echo
+    // comes back verbatim.
+    assert_eq!(&buf[..n], b"dns-query");
 
     let _ = pc.close().await;
     pumps.abort();

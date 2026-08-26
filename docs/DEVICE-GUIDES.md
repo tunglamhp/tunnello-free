@@ -179,3 +179,6 @@ ddns --token TOKEN2 --server https://<broker> --tcp 22
 ```
 
 The operator dashboard shows all active sessions grouped by token.
+
+UDP services can also go P2P: `ddns connect <sub> --udp 53` (no broker UDP
+port required — datagrams ride the WebRTC data channel).
