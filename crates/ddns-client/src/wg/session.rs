@@ -144,8 +144,8 @@ impl WgPeer {
                 match dec {
                     // Keepalive decapsulates to an empty inner packet — skip
                     // it so callers polling for data keep waiting.
-                    TunnResult::WriteToTunnelV4(ref pkt, _src) if pkt.is_empty() => {}
-                    TunnResult::WriteToTunnelV6(ref pkt, _src) if pkt.is_empty() => {}
+                    TunnResult::WriteToTunnelV4(pkt, _src) if pkt.is_empty() => {}
+                    TunnResult::WriteToTunnelV6(pkt, _src) if pkt.is_empty() => {}
                     TunnResult::WriteToTunnelV4(pkt, _src) => {
                         inner = Some(pkt.to_vec());
                         break;
