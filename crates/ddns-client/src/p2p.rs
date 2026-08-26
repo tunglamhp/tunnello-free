@@ -473,6 +473,7 @@ async fn bridge_exit_channel_with(
     subdomain: String,
     opts: ExitOptions,
 ) -> Result<(), String> {
+    let _ = rx_count; // exit-side rx counted in the read pump
     loop {
         match dc.poll().await {
             Some(DataChannelEvent::OnOpen) => break,
@@ -512,7 +513,7 @@ async fn bridge_exit_channel_with(
                                 }
                                 match tokio::net::TcpStream::connect(dest).await {
                                     Ok(sock) => {
-                                        let (rd, mut write) = sock.into_split();
+                                        let (rd, write) = sock.into_split();
                                         let task = read_tasks.spawn(read_socket_pump_exit(
                                             dc.clone(),
                                             rd,
@@ -528,10 +529,10 @@ async fn bridge_exit_channel_with(
                                 }
                             }
                             OP_DATA => {
-                                if let Some(s) = streams.get_mut(&frame.request_id) {
-                                    if s.write.write_all(&frame.payload).await.is_err() {
-                                        streams.remove(&frame.request_id);
-                                    }
+                                if let Some(s) = streams.get_mut(&frame.request_id)
+                                    && s.write.write_all(&frame.payload).await.is_err()
+                                {
+                                    streams.remove(&frame.request_id);
                                 }
                             }
                             OP_CLOSE => {
