@@ -168,7 +168,7 @@ mod tests {
         let cfg = ExitPeerConfig {
             visitor_pubkey_b64: "cHVi".into(), // base64("pub")
             visitor_tunnel_ip: Ipv4Addr::new(10, 200, 200, 2),
-            psk: [7u8; 32],
+            psk: [7u8; 32].into(),
         };
         let s = cfg.render_wg_set_peer();
         assert!(
