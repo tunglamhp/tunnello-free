@@ -27,7 +27,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve version (tag must match Cargo workspace)
         id: ver
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Rust + wasm target
         uses: dtolnay/rust-toolchain@master
@@ -63,7 +63,7 @@ jobs:
         run: dx bundle --platform web --package ddns-web --release
 
       - name: Upload web bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: web-bundle
           path: dist
@@ -104,7 +104,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install musl toolchain
         if: endsWith(matrix.target, '-musl')
@@ -152,7 +152,7 @@ jobs:
           ls -la staging
 
       - name: Upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.kind }}-${{ matrix.target }}
           path: staging/*
@@ -163,10 +163,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
           merge-multiple: true
