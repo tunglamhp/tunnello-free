@@ -11,6 +11,10 @@ name = "ddns"
 path = "src/main.rs"
 
 [dependencies]
+boringtun = "0.7"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+getrandom = "0.3"
+tun = { version = "0.7", features = ["async"] }
 base64.workspace = true
 dashmap.workspace = true
 bytes.workspace = true
