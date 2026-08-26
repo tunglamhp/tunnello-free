@@ -44,7 +44,6 @@ pub enum BridgeMode {
     Http,
     Tcp,
     Udp,
-    Exit,
 }
 
 /// Map a data-channel label to its bridge mode. Anything other than `"tcp"`
@@ -227,7 +226,6 @@ impl P2pGateway {
                 BridgeMode::Http => bridge_channel(dc, target, tx_count, rx_count, sub).await,
                 BridgeMode::Tcp => bridge_tcp_channel(dc, target, tx_count, rx_count, sub).await,
                 BridgeMode::Udp => bridge_udp_channel(dc, target, tx_count, rx_count, sub).await,
-                BridgeMode::Exit => bridge_exit_channel(dc, tx_count, rx_count, sub).await,
             };
         });
 
@@ -414,167 +412,6 @@ async fn bridge_udp_channel(
             },
         }
     }
-}
-
-/// SSRF guard: refuse loopback / link-local / RFC1918 destinations unless the
-/// exit operator allows LAN (`--exit-allow-lan`). Spec §8.
-pub fn dest_allowed(dest: &str, allow_lan: bool) -> bool {
-    let host = dest.rsplit_once(':').map(|(h, _)| h).unwrap_or(dest);
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    let Ok(ip) = host.parse::<std::net::IpAddr>() else {
-        // Hostnames resolve at dial time; v1 allows (documented).
-        return true;
-    };
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            let o = v4.octets();
-            let is_local = o[0] == 127
-                || (o[0] == 169 && o[1] == 254)
-                || o[0] == 10
-                || (o[0] == 192 && o[1] == 168)
-                || (o[0] == 172 && (16..=31).contains(&o[1]));
-            allow_lan || !is_local
-        }
-        std::net::IpAddr::V6(v6) => allow_lan || !v6.is_loopback(),
-    }
-}
-
-/// Exit options for [`bridge_exit_channel`].
-#[derive(Debug, Clone, Copy)]
-pub struct ExitOptions {
-    /// Allow RFC1918/loopback/link-local destinations (client `--exit-allow-lan`).
-    pub allow_lan: bool,
-}
-
-/// Exit bridge: `REQ` carries a `host:port\0` destination; the exit dials it
-/// directly (the operator's machine is the internet egress). Runs only on an
-/// opted-in client — the broker rejects exit-mode visitors without
-/// `want_exit`, so this bridge never sees uninvited traffic.
-async fn bridge_exit_channel(
-    dc: Arc<dyn DataChannel>,
-    tx_count: Arc<AtomicU64>,
-    rx_count: Arc<AtomicU64>,
-    subdomain: String,
-) -> Result<(), String> {
-    bridge_exit_channel_with(
-        dc,
-        tx_count,
-        rx_count,
-        subdomain,
-        ExitOptions { allow_lan: false },
-    )
-    .await
-}
-
-async fn bridge_exit_channel_with(
-    dc: Arc<dyn DataChannel>,
-    tx_count: Arc<AtomicU64>,
-    rx_count: Arc<AtomicU64>,
-    subdomain: String,
-    opts: ExitOptions,
-) -> Result<(), String> {
-    let _ = rx_count; // exit-side rx counted in the read pump
-    loop {
-        match dc.poll().await {
-            Some(DataChannelEvent::OnOpen) => break,
-            Some(DataChannelEvent::OnClose) | None => return Ok(()),
-            _ => {}
-        }
-    }
-    tracing::info!(%subdomain, "p2p exit visitor joined");
-
-    let mut streams: HashMap<u32, OpenStream> = HashMap::new();
-    let mut read_tasks: JoinSet<()> = JoinSet::new();
-
-    loop {
-        tokio::select! {
-            _ = read_tasks.join_next(), if !read_tasks.is_empty() => {}
-
-            ev = dc.poll() => {
-                match ev {
-                    Some(DataChannelEvent::OnMessage(msg)) if !msg.is_string => {
-                        let Some(frame) = decode_frame(&msg.data) else { continue; };
-                        match frame.opcode {
-                            OP_REQ => {
-                                let id = frame.request_id;
-                                if streams.contains_key(&id) {
-                                    continue;
-                                }
-                                let Some(dest) = crate::exit::framing::parse_dest(&frame.payload)
-                                else {
-                                    // Exit requires an explicit destination.
-                                    let _ = send_frame(&dc, OP_CLOSE, id, &[2]).await;
-                                    continue;
-                                };
-                                if !dest_allowed(dest, opts.allow_lan) {
-                                    tracing::warn!(%subdomain, %dest, "exit destination blocked (LAN)");
-                                    let _ = send_frame(&dc, OP_CLOSE, id, &[2]).await;
-                                    continue;
-                                }
-                                match tokio::net::TcpStream::connect(dest).await {
-                                    Ok(sock) => {
-                                        let (rd, write) = sock.into_split();
-                                        let task = read_tasks.spawn(read_socket_pump_exit(
-                                            dc.clone(),
-                                            rd,
-                                            id,
-                                            tx_count.clone(),
-                                        ));
-                                        streams.insert(id, OpenStream { write, task });
-                                    }
-                                    Err(e) => {
-                                        tracing::debug!(%dest, error = %e, "exit dial failed");
-                                        let _ = send_frame(&dc, OP_CLOSE, id, &[1]).await;
-                                    }
-                                }
-                            }
-                            OP_DATA => {
-                                if let Some(s) = streams.get_mut(&frame.request_id)
-                                    && s.write.write_all(&frame.payload).await.is_err()
-                                {
-                                    streams.remove(&frame.request_id);
-                                }
-                            }
-                            OP_CLOSE => {
-                                if let Some(mut s) = streams.remove(&frame.request_id) {
-                                    let _ = s.write.shutdown().await;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    Some(DataChannelEvent::OnClose) | None => {
-                        tracing::info!(%subdomain, "p2p exit visitor left");
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-}
-
-/// Exit-side read pump: internet socket → DATA frames (mirrors
-/// [`read_socket_pump`]).
-async fn read_socket_pump_exit(
-    dc: Arc<dyn DataChannel>,
-    mut rd: tokio::net::tcp::OwnedReadHalf,
-    id: u32,
-    tx_count: Arc<AtomicU64>,
-) {
-    let mut buf = vec![0u8; 16_384];
-    loop {
-        match rd.read(&mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => {
-                tx_count.fetch_add(n as u64, Ordering::Relaxed);
-                if send_frame(&dc, OP_DATA, id, &buf[..n]).await.is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    let _ = send_frame(&dc, OP_CLOSE, id, &[]).await;
 }
 
 /// Maximum number of concurrent TCP streams multiplexed over one channel./// Maximum number of concurrent TCP streams multiplexed over one channel.

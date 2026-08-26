@@ -11,8 +11,6 @@ name = "ddns"
 path = "src/main.rs"
 
 [dependencies]
-smoltcp = { version = "0.12", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "socket-tcp", "socket-udp"] }
-tun = { version = "0.7", features = ["async"] }
 base64.workspace = true
 dashmap.workspace = true
 bytes.workspace = true
@@ -37,3 +35,4 @@ async-trait = "0.1"
 ddns-server = { path = "../ddns-server" }
 rcgen = "0.13"
 tokio-rustls.workspace = true
+

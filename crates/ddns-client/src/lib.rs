@@ -9,7 +9,6 @@
 pub mod cli;
 pub mod connect;
 pub mod connect_p2p;
-pub mod exit;
 pub mod mux;
 pub mod p2p;
 pub mod reconnect;
