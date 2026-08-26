@@ -12,7 +12,7 @@
 //! for an answer — the broker in production, a loopback `P2pGateway` in the
 //! in-process e2e test.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
