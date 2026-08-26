@@ -190,7 +190,18 @@ pub async fn run_mux(
                         .await;
                         return SessionEnd::ServerError(code);
                     }
-                    Control::P2pVisitorOffer { ticket, sdp, ice } => {
+                    Control::P2pVisitorOffer {
+                        ticket,
+                        sdp,
+                        ice,
+                        wg_pubkey,
+                    } => {
+                        // Exit-node mode: the visitor offered a WG pubkey.
+                        // v1 stores it for the WG session task (Task 3); the
+                        // WebRTC P2P path itself is unaffected.
+                        if let Some(pk) = &wg_pubkey {
+                            tracing::info!(visitor_pk = %pk, "exit-mode visitor");
+                        }
                         let Some(secret) = decode_secret(&session_secret) else {
                             tracing::warn!("session_secret is not valid base64url");
                             continue;

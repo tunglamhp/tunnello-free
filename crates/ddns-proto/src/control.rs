@@ -71,6 +71,9 @@ pub enum Control {
     P2pVisitorOffer {
         ticket: String,
         sdp: String,
+        /// Visitor's WireGuard public key (exit-node mode; None = plain P2P).
+        #[serde(default)]
+        wg_pubkey: Option<String>,
         ice: Vec<String>,
     },
     P2pAnswer {
@@ -191,6 +194,7 @@ mod tests {
                 ticket: "t.abc".into(),
                 sdp: "v=0\r\n".into(),
                 ice: vec!["candidate:1".into()],
+                wg_pubkey: None,
             },
             Control::P2pAnswer {
                 ticket: "t.abc".into(),

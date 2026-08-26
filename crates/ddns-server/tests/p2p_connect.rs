@@ -102,7 +102,13 @@ async fn connect_helper_hello_flow_reaches_client_and_returns_answer() {
 
     // Client control socket receives the visitor offer with a valid ticket.
     let offer = fc.recv_control().await;
-    let Control::P2pVisitorOffer { ticket, sdp, ice } = offer else {
+    let Control::P2pVisitorOffer {
+        ticket,
+        sdp,
+        ice,
+        wg_pubkey: _,
+    } = offer
+    else {
         panic!("expected p2p_visitor_offer, got {offer:?}");
     };
     assert_eq!(sdp, "v=0\r\n");

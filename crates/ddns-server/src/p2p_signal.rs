@@ -30,6 +30,10 @@ enum VisitorMsg {
         slug: Option<String>,
         sdp: String,
         ice: Vec<String>,
+        /// Visitor's WireGuard public key (exit-node mode; serde default so
+        /// the browser connector's hello without it stays valid).
+        #[serde(default)]
+        wg_pubkey: Option<String>,
     },
     Offer {
         sdp: String,
@@ -99,9 +103,14 @@ async fn signal_run(
         let Ok(vmsg) = serde_json::from_str::<VisitorMsg>(t.as_str()) else {
             continue;
         };
-        let (slug, sdp, ice) = match vmsg {
-            VisitorMsg::Hello { slug, sdp, ice } => (slug.or_else(|| host_slug.clone()), sdp, ice),
-            VisitorMsg::Offer { sdp, ice } => (host_slug.clone(), sdp, ice),
+        let (slug, sdp, ice, wg_pubkey) = match vmsg {
+            VisitorMsg::Hello {
+                slug,
+                sdp,
+                ice,
+                wg_pubkey,
+            } => (slug.or_else(|| host_slug.clone()), sdp, ice, wg_pubkey),
+            VisitorMsg::Offer { sdp, ice } => (host_slug.clone(), sdp, ice, None),
             VisitorMsg::Ice { .. } => {
                 // ICE candidate before the offer: dropped (the connector page
                 // always sends the offer first, then trickles candidates).
@@ -113,13 +122,25 @@ async fn signal_run(
             let _ = ws.send(Message::Text(failed("session_gone"))).await;
             return;
         };
+        // Key-age enforcement: an exit-mode pubkey older than the policy
+        // window is rejected until the visitor re-registers (spec §3.Broker).
+        if let Some(pk) = &wg_pubkey
+            && crate::keyage::key_age().expired(pk, crate::now_secs())
+        {
+            let _ = ws.send(Message::Text(failed("key_expired"))).await;
+            return;
+        }
         let ticket = issue_ticket(&session.session_secret(), &session.slug);
         let (tx, r) = mpsc::channel::<String>(VISITOR_QUEUE_CAP);
         state.p2p_visitors.insert(ticket.clone(), tx);
+        if let Some(pk) = &wg_pubkey {
+            crate::keyage::key_age().record(pk, crate::now_secs());
+        }
         let control = Control::P2pVisitorOffer {
             ticket: ticket.clone(),
             sdp,
             ice,
+            wg_pubkey,
         };
         if session
             .ws_tx()

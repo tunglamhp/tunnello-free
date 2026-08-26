@@ -18,6 +18,7 @@ pub mod hot;
 pub mod http_app;
 pub mod http_options;
 pub mod http_tunnel;
+pub mod keyage;
 pub mod mailer;
 pub mod metrics;
 pub mod mux;
@@ -265,6 +266,8 @@ impl Broker {
         let audit = crate::audit::AuditStore::open(&config.token_store);
         crate::ui::set_audit(audit.clone());
         let setup = crate::setup::SetupStore::open(&config.token_store);
+        // Visitor WG key-age policy: 180-day fixed default (free edition).
+        crate::keyage::init_key_age(180);
         let hot = match &config.redis_url {
             Some(url) => hot::HotCounter::connect_retry(url).await,
             None => None,
