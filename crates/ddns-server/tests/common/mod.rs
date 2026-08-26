@@ -236,6 +236,7 @@ impl FakeClient {
             want_http,
             want_udp,
             udp_port,
+            want_exit: false,
             subdomain_hint: slug_hint.map(str::to_string),
         })
         .await;

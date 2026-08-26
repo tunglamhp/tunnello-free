@@ -119,6 +119,9 @@ pub struct TunnelSession {
     debug_log: std::sync::Mutex<Vec<DebugEntry>>,
     /// Session advertises UDP capability (client registered with --udp).
     pub want_udp: bool,
+    /// Exit-node opt-in (client `--allow-exit`): broker rejects exit-mode
+    /// `REQ`s from sessions without this.
+    pub want_exit: bool,
     /// Local UDP port the client dials for each flow (from --udp PORT).
     pub udp_target_port: u16,
 }
@@ -132,6 +135,7 @@ impl TunnelSession {
         want_http: bool,
         want_udp: bool,
         udp_target_port: u16,
+        want_exit: bool,
         limits: TokenLimits,
         ws_tx: mpsc::Sender<Message>,
         kill_tx: watch::Sender<Option<KillReason>>,
@@ -171,6 +175,7 @@ impl TunnelSession {
             debug_log: std::sync::Mutex::new(Vec::new()),
             want_udp,
             udp_target_port,
+            want_exit,
         })
     }
 
@@ -349,6 +354,7 @@ mod tests {
             true,
             false,
             0,
+            false,
             limits,
             ws_tx,
             kill_tx,
@@ -391,6 +397,7 @@ mod tests {
             true,
             false,
             0,
+            false,
             unlimited(),
             ws_tx,
             kill_tx,

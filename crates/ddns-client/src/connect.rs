@@ -180,6 +180,7 @@ pub async fn connect_and_register(
         want_http: cli.http_target.is_some(),
         want_udp: cli.udp_target.is_some(),
         udp_port: cli.udp_target.unwrap_or(0),
+        want_exit: false,
         subdomain_hint: None,
     };
     let json = serde_json::to_string(&register).map_err(|e| ConnError::Protocol(e.to_string()))?;

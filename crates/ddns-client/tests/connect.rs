@@ -260,6 +260,7 @@ async fn client_registers_with_no_tunnel_hint() {
         want_http: true,
         want_udp: false,
         udp_port: 0,
+        want_exit: false,
         subdomain_hint: None,
     };
     let json = serde_json::to_string(&msg).unwrap();

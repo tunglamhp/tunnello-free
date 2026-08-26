@@ -38,6 +38,10 @@ pub enum Control {
         /// Local UDP port the client dials for each flow (from --udp PORT).
         #[serde(default)]
         udp_port: u16,
+        /// Exit-node opt-in: this session may serve `REQ`-with-destination
+        /// flows (client `--allow-exit`). Default false — broker rejects.
+        #[serde(default)]
+        want_exit: bool,
         #[serde(default)]
         subdomain_hint: Option<String>,
     },
@@ -105,6 +109,7 @@ mod tests {
             want_http: true,
             want_udp: false,
             udp_port: 0,
+            want_exit: false,
             subdomain_hint: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
