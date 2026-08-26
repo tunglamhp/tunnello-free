@@ -44,6 +44,9 @@ pub enum Command {
         server: String,
         subdomain: String,
         ca_pem: Option<String>,
+        /// `--udp PORT`: forward UDP datagrams to the tunnel's local UDP
+        /// service over a `"udp"`-labeled P2P data channel (None = TCP mode).
+        udp: Option<u16>,
     },
 }
 
@@ -246,6 +249,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, String> {
 fn parse_connect(args: &[String]) -> Result<Command, String> {
     let mut target: Option<String> = None;
     let mut ca_pem: Option<String> = None;
+    let mut udp: Option<u16> = None;
     let mut i = 0;
 
     while i < args.len() {
@@ -253,6 +257,19 @@ fn parse_connect(args: &[String]) -> Result<Command, String> {
         let require_value = || Err(format!("flag {flag} requires a value"));
 
         match flag.as_str() {
+            "--udp" => {
+                i += 1;
+                if i >= args.len() {
+                    return require_value();
+                }
+                let port: u16 = args[i]
+                    .parse()
+                    .map_err(|_| format!("invalid port: {}", args[i]))?;
+                if port == 0 {
+                    return Err("invalid port: 0".to_string());
+                }
+                udp = Some(port);
+            }
             "--ca-pem" => {
                 i += 1;
                 if i >= args.len() {
@@ -282,6 +299,7 @@ fn parse_connect(args: &[String]) -> Result<Command, String> {
         server,
         subdomain,
         ca_pem,
+        udp,
     })
 }
 

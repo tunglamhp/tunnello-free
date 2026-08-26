@@ -49,7 +49,11 @@ fn main() {
             server,
             subdomain,
             ca_pem,
-        } => run_connect(&server, &subdomain, ca_pem.as_deref(), roots),
+            udp,
+        } => match udp {
+            None => run_connect(&server, &subdomain, ca_pem.as_deref(), roots),
+            Some(_port) => run_connect_udp(&server, &subdomain, ca_pem.as_deref(), roots),
+        },
     }
 }
 
@@ -109,6 +113,33 @@ fn run_connect(
 /// escape sequences before the next block so a reconnected subdomain replaces
 /// the stale one on screen (spec §8 "clears terminal state between"). Only
 /// clears on a real terminal; piped output stays a plain log.
+
+/// Run the `ddns connect --udp` native-visitor helper (same exit contract as
+/// [`run_connect`]).
+fn run_connect_udp(
+    server: &str,
+    subdomain: &str,
+    ca_pem: Option<&str>,
+    roots: &[rustls::pki_types::CertificateDer<'static>],
+) -> ! {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let result = rt.block_on(ddns_client::connect_p2p::run_connect_udp(
+        server, subdomain, ca_pem, roots,
+    ));
+
+    match result {
+        Ok(()) => process::exit(0),
+        Err(e) => {
+            eprintln!("ddns: {e}");
+            process::exit(2);
+        }
+    }
+}
+
 static PENDING_LINES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 fn clear_pending_lines() {

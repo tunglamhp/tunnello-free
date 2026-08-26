@@ -319,3 +319,43 @@ fn from_url_ipv6_bare_no_port() {
         "expected missing-port error for bare IPv6, got: {err}"
     );
 }
+
+#[test]
+fn connect_parses_udp_flag() {
+    let args = vec![
+        "connect".into(),
+        "myslug".into(),
+        "--udp".into(),
+        "53".into(),
+    ];
+    match cli::parse_command(&args).unwrap() {
+        cli::Command::Connect { subdomain, udp, .. } => {
+            assert_eq!(subdomain, "myslug");
+            assert_eq!(udp, Some(53));
+        }
+        other => panic!("expected Connect, got {other:?}"),
+    }
+}
+
+#[test]
+fn connect_without_udp_is_tcp_mode() {
+    let args = vec!["connect".into(), "myslug".into()];
+    match cli::parse_command(&args).unwrap() {
+        cli::Command::Connect { udp, .. } => assert_eq!(udp, None),
+        other => panic!("expected Connect, got {other:?}"),
+    }
+}
+
+#[test]
+fn connect_rejects_udp_port_zero() {
+    let args = vec![
+        "connect".into(),
+        "myslug".into(),
+        "--udp".into(),
+        "0".into(),
+    ];
+    assert!(
+        cli::parse_command(&args).is_err(),
+        "port 0 must be rejected"
+    );
+}

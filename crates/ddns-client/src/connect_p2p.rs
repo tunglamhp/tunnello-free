@@ -12,7 +12,7 @@
 //! for an answer — the broker in production, a loopback `P2pGateway` in the
 //! in-process e2e test.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -91,6 +91,18 @@ where
     F: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = Result<String, String>>,
 {
+    connect_p2p_channel_labeled("tcp", negotiate).await
+}
+
+/// [`connect_p2p_channel`] with an explicit channel label (`"tcp"` | `"udp"`).
+pub async fn connect_p2p_channel_labeled<F, Fut>(
+    label: &str,
+    negotiate: F,
+) -> Result<(Arc<dyn PeerConnection>, Arc<dyn DataChannel>), String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = Result<String, String>>,
+{
     let (gather_tx, mut gather_rx) = tokio::sync::mpsc::channel::<()>(1);
     let pc: Arc<dyn PeerConnection> = Arc::new(
         PeerConnectionBuilder::new()
@@ -103,7 +115,7 @@ where
     );
 
     let dc = pc
-        .create_data_channel("tcp", None)
+        .create_data_channel(label, None)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -373,7 +385,175 @@ struct OpenStream {
     task: AbortHandle,
 }
 
-/// Pump one accepted socket's read half into `DATA` frames until EOF/error,
+/// The whole UDP connect flow: negotiate the `"udp"` channel, bind a local
+/// UDP socket, and pump datagrams over the channel until it closes.
+pub async fn run_connect_udp(
+    server: &str,
+    subdomain: &str,
+    ca_pem: Option<&str>,
+    roots: &[CertificateDer<'static>],
+) -> Result<(), String> {
+    let relay = relay_address(server, subdomain);
+
+    let server_owned = server.to_string();
+    let subdomain_owned = subdomain.to_string();
+    let ca_pem_owned = ca_pem.map(str::to_string);
+    let roots_owned = roots.to_vec();
+
+    let negotiate = move |offer_sdp| {
+        signal_via_broker(
+            server_owned,
+            subdomain_owned,
+            ca_pem_owned,
+            roots_owned,
+            offer_sdp,
+        )
+    };
+
+    let (pc, dc) = match tokio::time::timeout(
+        SIGNAL_TIMEOUT,
+        connect_p2p_channel_labeled("udp", negotiate),
+    )
+    .await
+    {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => return Err(relay_error(&relay)),
+    };
+
+    let (sock, _port) = bind_udp_socket(subdomain).await?;
+    run_udp_pumps(pc, dc, sock, subdomain.to_string()).await
+}
+
+/// Bind the visitor's local UDP socket (ephemeral port) and print the
+/// forward line. Returns the socket and its bound port.
+pub async fn bind_udp_socket(subdomain: &str) -> Result<(tokio::net::UdpSocket, u16), String> {
+    let sock = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("bind udp: {e}"))?;
+    let port = sock.local_addr().map_err(|e| e.to_string())?.port();
+    println!("Forwarding UDP 127.0.0.1:{port} -> p2p:{subdomain}");
+    Ok((sock, port))
+}
+
+/// Visitor-side UDP pumps (mirror of [`run_pumps`] with datagram semantics):
+/// one flow per remote address; an empty `REQ` announces the flow; the flow's
+/// first datagram carries the `<subdomain>\n` shared-port routing prefix;
+/// 30 s idle sends `CLOSE`. Channel `DATA` frames go back to the flow's
+/// remote address. Runs until the channel closes.
+pub async fn run_udp_pumps(
+    _pc: Arc<dyn PeerConnection>,
+    dc: Arc<dyn DataChannel>,
+    sock: tokio::net::UdpSocket,
+    subdomain: String,
+) -> Result<(), String> {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    const FLOW_IDLE: Duration = Duration::from_secs(30);
+    type FlowMap = Arc<Mutex<HashMap<u32, std::net::SocketAddr>>>;
+
+    let sock = Arc::new(sock);
+    let mut flows: HashMap<std::net::SocketAddr, u32> = HashMap::new();
+    let remotes: FlowMap = Arc::new(Mutex::new(HashMap::new()));
+    let mut first: HashSet<u32> = HashSet::new();
+    let mut last_seen: HashMap<u32, Instant> = HashMap::new();
+    let mut next_flow: u32 = 1;
+
+    // Downstream reader (own task): channel DATA → visitor app. It resolves
+    // the flow's remote address through the shared map.
+    let remotes_reader: FlowMap = remotes.clone();
+    let sock_down = sock.clone();
+    let dc_down = dc.clone();
+    let down = tokio::spawn(async move {
+        let mut buf = vec![0u8; 0]; // placeholder to keep types simple
+        let _ = &mut buf;
+        loop {
+            match dc_down.poll().await {
+                Some(webrtc::data_channel::DataChannelEvent::OnMessage(msg)) if !msg.is_string => {
+                    let Some(frame) = crate::p2p::decode_frame(&msg.data) else {
+                        continue;
+                    };
+                    match frame.opcode {
+                        crate::p2p::OP_DATA => {
+                            let remote = remotes_reader
+                                .lock()
+                                .unwrap()
+                                .get(&frame.request_id)
+                                .copied();
+                            if let Some(remote) = remote {
+                                let _ = sock_down.send_to(&frame.payload, remote).await;
+                            }
+                        }
+                        crate::p2p::OP_CLOSE => {
+                            remotes_reader.lock().unwrap().remove(&frame.request_id);
+                        }
+                        _ => {}
+                    }
+                }
+                Some(webrtc::data_channel::DataChannelEvent::OnClose) | None => break,
+                _ => {}
+            }
+        }
+    });
+
+    // Upstream loop: visitor datagrams → channel (single owner of `flows`).
+    let mut buf = vec![0u8; 65_535];
+    let result = loop {
+        tokio::select! {
+            r = sock.recv_from(&mut buf) => {
+                let Ok((len, remote)) = r else { break Ok(()) };
+                let datagram = &buf[..len];
+                let flow_id = match flows.get(&remote) {
+                    Some(id) => *id,
+                    None => {
+                        let id = next_flow;
+                        next_flow += 1;
+                        flows.insert(remote, id);
+                        remotes.lock().unwrap().insert(id, remote);
+                        first.insert(id);
+                        // Announce the flow (empty REQ).
+                        send_frame(&dc, OP_REQ, id, &[]).await?;
+                        id
+                    }
+                };
+                last_seen.insert(flow_id, Instant::now());
+                let payload: Vec<u8> = if first.remove(&flow_id) {
+                    let mut prefixed = subdomain.as_bytes().to_vec();
+                    prefixed.push(b'\n');
+                    prefixed.extend_from_slice(datagram);
+                    prefixed
+                } else {
+                    datagram.to_vec()
+                };
+                send_frame(&dc, OP_DATA, flow_id, &payload).await?;
+            }
+
+            _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                // Reap flows idle past FLOW_IDLE (CLOSE + drop both maps).
+                let now = Instant::now();
+                let expired: Vec<u32> = last_seen
+                    .iter()
+                    .filter(|(_, t)| now.duration_since(**t) > FLOW_IDLE)
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in expired {
+                    last_seen.remove(&id);
+                    first.remove(&id);
+                    remotes.lock().unwrap().remove(&id);
+                    flows.retain(|_, v| *v != id);
+                    send_frame(&dc, OP_CLOSE, id, &[]).await?;
+                }
+            }
+        }
+    };
+
+    down.abort();
+    result
+}
+
+/// Pump one accepted socket's read half into `DATA` frames until EOF/error,/// Pump one accepted socket's read half into `DATA` frames until EOF/error,
 /// then signal `CLOSE` and return.
 async fn read_socket_pump(dc: Arc<dyn DataChannel>, mut rd: OwnedReadHalf, id: u32) {
     let mut buf = [0u8; 4096];
