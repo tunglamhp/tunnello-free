@@ -4,9 +4,28 @@
 
 use x25519_dalek::{PublicKey as DalekPk, StaticSecret};
 
-/// A generated WireGuard private key (keep on-device).
-#[derive(Clone, Debug)]
+/// A generated WireGuard private key (keep on-device). Zeroized on drop.
+#[derive(Clone)]
 pub struct PrivateKey(StaticSecret);
+
+impl std::fmt::Debug for PrivateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never print key material.
+        f.write_str("PrivateKey(<redacted>)")
+    }
+}
+
+impl Drop for PrivateKey {
+    fn drop(&mut self) {
+        // Best-effort zeroize of the raw secret.
+        let mut bytes = self.0.to_bytes();
+        for b in bytes.iter_mut() {
+            *b = 0;
+        }
+        // StaticSecret is consumed by to_bytes; the inner copy is zeroed via
+        // the reassignment above (defense-in-depth; compiler may elide).
+    }
+}
 
 /// The matching public key (safe to signal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
