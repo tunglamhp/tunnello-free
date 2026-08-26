@@ -4,4 +4,5 @@
 
 pub mod config;
 pub mod keys;
+pub mod platform;
 pub mod session;
