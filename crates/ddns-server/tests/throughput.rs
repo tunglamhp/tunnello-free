@@ -51,7 +51,12 @@ async fn run_once() -> (f64, std::time::Duration, ddns_server::Broker) {
         .insert("tok_perf".into(), common::test_record("t-perf", true))
         .await
         .unwrap();
-    let (addr, broker) = start_broker(&cert, &key, store, 256, Duration::from_secs(5)).await;
+    // Generous idle timeout: the 32 MiB round trip takes well under this on a
+    // quiet machine, but on contended serial CI runs the handshake + transfer
+    // can stall past the default 5s reap window and spuriously close the ws
+    // ("ws closed while waiting for frame"), failing the test with a
+    // non-regression EOF. Bump to 120s so only a real hang trips it.
+    let (addr, broker) = start_broker(&cert, &key, store, 256, Duration::from_secs(120)).await;
     let (mut fc, reply) = FakeClient::connect(addr, &cert, "tok_perf").await;
     let slug = FakeClient::slug(&reply);
 
