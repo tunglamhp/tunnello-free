@@ -38,17 +38,25 @@ impl KeyAgeStore {
         }
     }
 
-    /// Record (or refresh) the issue time of a pubkey.
+    /// Record the first sighting of a pubkey. Later hellos with the same key
+    /// do NOT refresh the clock (spec §3.Broker: "recorded at first sight"),
+    /// so a stale key can never extend its own lifetime by re-registering.
     pub fn record(&self, pubkey_b64: &str, now_unix: i64) {
         self.issued_at
             .lock()
             .unwrap()
-            .insert(pubkey_b64.to_string(), now_unix);
+            .entry(pubkey_b64.to_string())
+            .or_insert(now_unix);
     }
 
     /// True when the key is unknown OR older than the max age.
+    /// Lazy sweep: stale entries are dropped from the store as they are
+    /// observed, bounding growth to keys seen within the policy window.
     pub fn expired(&self, pubkey_b64: &str, now_unix: i64) -> bool {
-        match self.issued_at.lock().unwrap().get(pubkey_b64) {
+        let mut map = self.issued_at.lock().unwrap();
+        let cutoff = now_unix - self.max_age_days as i64 * DAY_SECS;
+        map.retain(|_, t| *t >= cutoff);
+        match map.get(pubkey_b64) {
             None => true,
             Some(t) => now_unix - *t >= self.max_age_days as i64 * DAY_SECS,
         }
@@ -84,11 +92,24 @@ mod tests {
     }
 
     #[test]
-    fn record_refreshes_clock() {
+    fn record_keeps_first_sighting() {
         let store = KeyAgeStore::new(1);
         store.record("k", 0);
-        store.record("k", 86_400); // re-register pushes expiry out
-        assert!(!store.expired("k", 86_400 + 3_600));
+        store.record("k", 86_400); // re-hello must NOT refresh the clock
+        assert!(
+            store.expired("k", 86_400 + 3_600),
+            "first sighting wins: key is 1 day+ old → expired"
+        );
+    }
+
+    #[test]
+    fn expired_sweeps_stale_keys() {
+        let store = KeyAgeStore::new(1);
+        store.record("fresh", 86_400);
+        store.record("stale", 0);
+        assert!(store.expired("stale", 86_400 + 3_600));
+        assert_eq!(store.len(), 1, "stale key swept on expiry check");
+        assert!(!store.expired("fresh", 86_400 + 3_600));
     }
 
     #[test]

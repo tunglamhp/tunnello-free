@@ -274,3 +274,39 @@ async fn service_worker_served_with_js_headers() {
     );
     broker.stop().await;
 }
+
+#[tokio::test]
+async fn malformed_wg_pubkey_rejected_before_relay() {
+    let (cert, key) = test_cert();
+    let (addr, broker) =
+        start_broker(&cert, &key, tokens().await, 256, Duration::from_secs(5)).await;
+    let (mut fc, reply) = FakeClient::connect(addr, &cert, "tok_test").await;
+    let slug = FakeClient::slug(&reply);
+
+    let mut ws = connect_signal_ws(addr, &cert).await;
+    send_json(
+        &mut ws,
+        serde_json::json!({
+            "type": "hello",
+            "slug": slug,
+            "sdp": "v=0\r\n",
+            "ice": [],
+            "wg_pubkey": "!!!not-base64!!!"
+        }),
+    )
+    .await;
+
+    // Rejected with a format error BEFORE any key-age/store logic runs.
+    let resp = recv_json(&mut ws).await;
+    assert_eq!(resp["type"], "failed");
+    assert_eq!(resp["reason"], "bad_pubkey");
+
+    // The client never receives a visitor offer.
+    let got = tokio::time::timeout(std::time::Duration::from_millis(500), fc.recv_control()).await;
+    assert!(
+        got.is_err(),
+        "no offer must be relayed for a malformed pubkey"
+    );
+
+    broker.stop().await;
+}

@@ -122,6 +122,14 @@ async fn signal_run(
             let _ = ws.send(Message::Text(failed("session_gone"))).await;
             return;
         };
+        // Format gate: a malformed pubkey is rejected up front (it can never
+        // be a valid key, so key-age/store logic must not see it).
+        if let Some(pk) = &wg_pubkey
+            && !validate_wg_pubkey(pk)
+        {
+            let _ = ws.send(Message::Text(failed("bad_pubkey"))).await;
+            return;
+        }
         // Key-age enforcement: an exit-mode pubkey older than the policy
         // window is rejected until the visitor re-registers (spec §3.Broker).
         if let Some(pk) = &wg_pubkey
@@ -195,6 +203,19 @@ async fn signal_run(
 }
 
 /// Serialize a visitor-facing `{type: failed, reason}` message.
+/// Accept only well-formed WireGuard public keys: standard base64 decoding
+/// to exactly 32 bytes (the client encodes `x25519` public keys that way).
+/// Rejects junk before any key-age/store logic runs, so a malformed value
+/// can neither poison the store nor be mistaken for a stale valid key.
+fn validate_wg_pubkey(pk: &str) -> bool {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(pk)
+        .ok()
+        .and_then(|raw| <[u8; 32]>::try_from(raw).ok())
+        .is_some()
+}
+
 fn failed(reason: &str) -> Utf8Bytes {
     serde_json::json!({ "type": "failed", "reason": reason })
         .to_string()
