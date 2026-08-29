@@ -1051,7 +1051,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "ddns-client"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "ddns-echo"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "axum",
  "serde_json",
@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "ddns-proto"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "ddns-server"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "argon2",
  "axum",
@@ -1148,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "ddns-web"
-version = "0.10.2"
+version = "0.10.3"
 dependencies = [
  "dioxus",
  "dioxus-web",

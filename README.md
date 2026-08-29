@@ -9,6 +9,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/></a>
   <a href="https://github.com/tunglamhp/tunnello-free/releases"><img src="https://img.shields.io/github/v/release/tunglamhp/tunnello-free" alt="Release"/></a>
+  <img src="https://img.shields.io/badge/version-0.10.3-6f42c1" alt="version 0.10.3"/>
 </p>
 
 ```
@@ -61,6 +62,10 @@ ddns update           # tự tải binary mới từ GitHub Releases
 ## Cấu hình nâng cao & khắc phục sự cố
 
 Xem **[MANUAL.md](MANUAL.md)** — cổng STUN, biến môi trường, dashboard pages, dev mode, build từ source, kiến trúc, gỡ lỗi.
+
+## Thay đổi theo phiên bản
+
+Xem **[CHANGELOG.md](CHANGELOG.md)** — các bản phát hành và thay đổi gần nhất.
 
 ## Giấy phép
 
