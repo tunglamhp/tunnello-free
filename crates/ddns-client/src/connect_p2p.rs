@@ -487,7 +487,10 @@ pub async fn run_udp_pumps(
                             }
                         }
                         crate::p2p::OP_CLOSE => {
-                            remotes_reader.lock().unwrap().remove(&frame.request_id);
+                            remotes_reader
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .remove(&frame.request_id);
                         }
                         _ => {}
                     }
@@ -511,7 +514,7 @@ pub async fn run_udp_pumps(
                         let id = next_flow;
                         next_flow += 1;
                         flows.insert(remote, id);
-                        remotes.lock().unwrap().insert(id, remote);
+                        remotes.lock().unwrap_or_else(|e| e.into_inner()).insert(id, remote);
                         first.insert(id);
                         // Announce the flow (empty REQ).
                         send_frame(&dc, OP_REQ, id, &[]).await?;
@@ -541,7 +544,7 @@ pub async fn run_udp_pumps(
                 for id in expired {
                     last_seen.remove(&id);
                     first.remove(&id);
-                    remotes.lock().unwrap().remove(&id);
+                    remotes.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
                     flows.retain(|_, v| *v != id);
                     send_frame(&dc, OP_CLOSE, id, &[]).await?;
                 }

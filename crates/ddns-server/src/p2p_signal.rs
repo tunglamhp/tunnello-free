@@ -133,7 +133,7 @@ async fn signal_run(
         // Key-age enforcement: an exit-mode pubkey older than the policy
         // window is rejected until the visitor re-registers (spec §3.Broker).
         if let Some(pk) = &wg_pubkey
-            && crate::keyage::key_age().expired(pk, crate::now_secs())
+            && crate::keyage::key_age().is_some_and(|ka| ka.expired(pk, crate::now_secs()))
         {
             let _ = ws.send(Message::Text(failed("key_expired"))).await;
             return;
@@ -141,8 +141,10 @@ async fn signal_run(
         let ticket = issue_ticket(&session.session_secret(), &session.slug);
         let (tx, r) = mpsc::channel::<String>(VISITOR_QUEUE_CAP);
         state.p2p_visitors.insert(ticket.clone(), tx);
-        if let Some(pk) = &wg_pubkey {
-            crate::keyage::key_age().record(pk, crate::now_secs());
+        if let Some(pk) = &wg_pubkey
+            && let Some(ka) = crate::keyage::key_age()
+        {
+            ka.record(pk, crate::now_secs());
         }
         let control = Control::P2pVisitorOffer {
             ticket: ticket.clone(),

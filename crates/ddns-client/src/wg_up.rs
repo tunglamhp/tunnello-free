@@ -15,7 +15,7 @@ pub async fn run(
     roots: &[rustls::pki_types::CertificateDer<'static>],
 ) -> Result<(), String> {
     // 1. On-device keypair (private key never leaves this machine).
-    let (_sk, pk) = generate_keypair();
+    let (_sk, pk) = generate_keypair().expect("getrandom failure is fatal for keygen");
     println!("exit-node: visitor WG pubkey {}", pk.to_base64());
 
     // 2. Register/signaling: reuse the TCP helper's connect flow — the

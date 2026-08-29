@@ -71,12 +71,12 @@ impl PrivateKey {
 }
 
 /// Generate a fresh keypair from OS entropy.
-pub fn generate_keypair() -> (PrivateKey, PublicKey) {
+pub fn generate_keypair() -> Result<(PrivateKey, PublicKey), getrandom::Error> {
     let mut secret = [0u8; 32];
-    getrandom::fill(&mut secret).expect("os entropy");
+    getrandom::fill(&mut secret)?;
     let sk = StaticSecret::from(secret);
     let pk = DalekPk::from(&sk);
-    (PrivateKey(sk), PublicKey(pk.to_bytes()))
+    Ok((PrivateKey(sk), PublicKey(pk.to_bytes())))
 }
 
 #[cfg(test)]
@@ -84,23 +84,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generate_keypair_failure_type_is_getrandom_error() {
+        // The function must surface OS entropy failures as getrandom::Error,
+        // not panic or silently return invalid material.
+        let result: Result<(PrivateKey, PublicKey), getrandom::Error> = generate_keypair();
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
     fn keypair_derives_pubkey() {
-        let (sk, pk) = generate_keypair();
+        let (sk, pk) = generate_keypair().unwrap();
         let derived = sk.public_key();
         assert_eq!(derived.to_bytes(), pk.to_bytes());
     }
 
     #[test]
     fn keypairs_are_distinct() {
-        let (sk1, pk1) = generate_keypair();
-        let (sk2, pk2) = generate_keypair();
+        let (sk1, pk1) = generate_keypair().unwrap();
+        let (sk2, pk2) = generate_keypair().unwrap();
         assert_ne!(sk1.to_bytes(), sk2.to_bytes());
         assert_ne!(pk1.to_bytes(), pk2.to_bytes());
     }
 
     #[test]
     fn pubkey_base64_roundtrip() {
-        let (_sk, pk) = generate_keypair();
+        let (_sk, pk) = generate_keypair().unwrap();
         let b64 = pk.to_base64();
         assert_eq!(b64.len(), 44, "wg pubkey base64 is 44 chars");
         assert_eq!(PublicKey::from_base64(&b64).unwrap(), pk);

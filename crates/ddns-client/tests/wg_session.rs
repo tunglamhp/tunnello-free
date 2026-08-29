@@ -26,8 +26,8 @@ fn inner_packet(src: [u8; 4], dst: [u8; 4], payload: &[u8]) -> Vec<u8> {
 #[tokio::test]
 async fn wg_loopback_handshake_and_forward() {
     // --- Key material (visitor ↔ exit) --------------------------------------
-    let (sk_v, pk_v) = generate_keypair();
-    let (sk_e, pk_e) = generate_keypair();
+    let (sk_v, pk_v) = generate_keypair().expect("getrandom failure in test");
+    let (sk_e, pk_e) = generate_keypair().expect("getrandom failure in test");
     let psk = [42u8; 32];
 
     let sk_v = StaticSecret::from(sk_v.to_bytes());

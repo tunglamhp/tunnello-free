@@ -28,8 +28,8 @@ fn broker_ip() -> IpAddr {
 
 #[test]
 fn keypair_roundtrip_and_distinctness() {
-    let (sk1, pk1) = generate_keypair();
-    let (sk2, pk2) = generate_keypair();
+    let (sk1, pk1) = generate_keypair().expect("getrandom failure in test");
+    let (sk2, pk2) = generate_keypair().expect("getrandom failure in test");
     assert_ne!(sk1.to_bytes(), sk2.to_bytes());
     assert_ne!(pk1.to_bytes(), pk2.to_bytes());
     assert_eq!(pk1.to_bytes().len(), 32);

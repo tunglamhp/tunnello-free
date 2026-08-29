@@ -67,17 +67,26 @@ pub struct SessionClaims {
 
 impl SessionCookie {
     /// Cookie value: `base64url(exp.account_id.role).base64url(hmac)`.
-    pub fn issue(server_secret: &[u8], account_id: i64, role: &str, ttl_secs: u64) -> String {
+    // `()` error mirrors the broker's HMAC helpers; callers map it to a 500.
+    #[allow(clippy::result_unit_err)]
+    pub fn issue(
+        server_secret: &[u8],
+        account_id: i64,
+        role: &str,
+        ttl_secs: u64,
+    ) -> Result<String, ()> {
         let exp = now_unix().saturating_add(ttl_secs).to_string();
         let payload = format!("{exp}.{account_id}.{role}");
         let enc = URL_SAFE_NO_PAD.encode(payload.as_bytes());
-        let tag = Self::tag(server_secret, enc.as_bytes());
-        format!("{enc}.{tag}")
+        let tag = Self::tag(server_secret, enc.as_bytes())?;
+        Ok(format!("{enc}.{tag}"))
     }
 
     pub fn verify(cookie: &str, server_secret: &[u8]) -> Option<SessionClaims> {
         let (enc, tag) = cookie.split_once('.')?;
-        let expected = Self::tag(server_secret, enc.as_bytes());
+        let Ok(expected) = Self::tag(server_secret, enc.as_bytes()) else {
+            return None;
+        };
         if !hmac_eq(expected.as_bytes(), tag.as_bytes()) {
             return None;
         }
@@ -92,10 +101,10 @@ impl SessionCookie {
         Some(SessionClaims { account_id, role })
     }
 
-    fn tag(server_secret: &[u8], payload: &[u8]) -> String {
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(server_secret).expect("hmac key");
+    fn tag(server_secret: &[u8], payload: &[u8]) -> Result<String, ()> {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(server_secret).map_err(|_| ())?;
         mac.update(payload);
-        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+        Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
     }
 }
 
@@ -436,7 +445,15 @@ pub async fn setup_submit(State(state): State<BrokerState>, body: String) -> Res
         }
     };
     let ttl = ttl_from_settings(&state);
-    let cookie = SessionCookie::issue(&secret, op.id, "operator", ttl);
+    let cookie = match SessionCookie::issue(&secret, op.id, "operator", ttl) {
+        Ok(c) => c,
+        Err(_) => {
+            return Html::status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                setup_html(Some("Session error.")),
+            );
+        }
+    };
     let set_cookie = format!(
         "{COOKIE_NAME}={cookie}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}; Secure",
         ttl
@@ -515,7 +532,15 @@ pub async fn login_submit(
     };
 
     let ttl = ttl_from_settings(&state);
-    let cookie = SessionCookie::issue(&secret, op.id, "operator", ttl);
+    let cookie = match SessionCookie::issue(&secret, op.id, "operator", ttl) {
+        Ok(c) => c,
+        Err(_) => {
+            return Html::status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                login_html(Some("Session error.")),
+            );
+        }
+    };
     let set_cookie = format!(
         "{COOKIE_NAME}={cookie}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}; Secure",
         ttl
@@ -708,27 +733,27 @@ mod tests {
 
     #[test]
     fn session_cookie_round_trips_with_claims() {
-        let secret = b"0123456789abcdef0123456789abcdef"; // 32 bytes
-        let cookie = SessionCookie::issue(secret, 7, "client", 3600);
-        let claims = SessionCookie::verify(&cookie, secret).unwrap();
+        let secret = b"0123456789abcdef0123456789abcdef".to_vec(); // 32 bytes
+        let cookie = SessionCookie::issue(&secret, 7, "client", 3600).expect("session issue");
+        let claims = SessionCookie::verify(&cookie, &secret).unwrap();
         assert_eq!(claims.account_id, 7);
         assert_eq!(claims.role, "client");
         // tampering fails
         let tampered = format!("{}x", &cookie[..cookie.len() - 2]);
-        assert!(SessionCookie::verify(&tampered, secret).is_none());
+        assert!(SessionCookie::verify(&tampered, &secret).is_none());
         // wrong secret fails
         assert!(SessionCookie::verify(&cookie, b"other-secret-0123456789abcdef").is_none());
         // old two-part cookies (exp.hmac) are rejected (re-login required)
         let legacy = format!("{}.{}", "MTc4OTkwMDAwMA", "AAAA");
-        assert!(SessionCookie::verify(&legacy, secret).is_none());
+        assert!(SessionCookie::verify(&legacy, &secret).is_none());
     }
 
     #[test]
     fn issue_ttl_controls_expiry() {
-        let secret = b"0123456789abcdef0123456789abcdef";
+        let secret = b"0123456789abcdef0123456789abcdef".to_vec();
         let before = now_unix();
         // ttl=1 → exp = now + 1 (payload embeds the expiry).
-        let cookie = SessionCookie::issue(secret, 7, "client", 1);
+        let cookie = SessionCookie::issue(&secret, 7, "client", 1).expect("session issue");
         let enc = cookie.split_once('.').unwrap().0;
         let payload = String::from_utf8(URL_SAFE_NO_PAD.decode(enc).unwrap()).unwrap();
         let exp: u64 = payload.split('.').next().unwrap().parse().unwrap();
@@ -737,27 +762,27 @@ mod tests {
             "exp={exp} before={before}"
         );
         // Not yet expired: verifies now.
-        assert!(SessionCookie::verify(&cookie, secret).is_some());
+        assert!(SessionCookie::verify(&cookie, &secret).is_some());
 
         // A crafted cookie whose exp is already in the past is rejected.
         let payload = format!("{}.7.client", before.saturating_sub(1));
         let enc = URL_SAFE_NO_PAD.encode(payload.as_bytes());
-        let tag = SessionCookie::tag(secret, enc.as_bytes());
+        let tag = SessionCookie::tag(&secret, enc.as_bytes()).expect("tag");
         let expired = format!("{enc}.{tag}");
-        assert!(SessionCookie::verify(&expired, secret).is_none());
+        assert!(SessionCookie::verify(&expired, &secret).is_none());
     }
 
     #[test]
     fn session_cookie_tampered_rejected() {
-        let secret = b"0123456789abcdef0123456789abcdef";
-        let cookie = SessionCookie::issue(secret, 7, "operator", 3600);
+        let secret = b"0123456789abcdef0123456789abcdef".to_vec();
+        let cookie = SessionCookie::issue(&secret, 7, "operator", 3600).expect("session issue");
         // Flip a character in the tag
         let dot = cookie.rfind('.').unwrap();
         let mut tampered = cookie.clone();
         let bytes = unsafe { tampered.as_bytes_mut() };
         bytes[dot + 1] = if bytes[dot + 1] == b'A' { b'B' } else { b'A' };
         assert!(
-            SessionCookie::verify(&tampered, secret).is_none(),
+            SessionCookie::verify(&tampered, &secret).is_none(),
             "tampered cookie must reject"
         );
     }

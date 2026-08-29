@@ -1035,7 +1035,8 @@ async fn oidc_start(State(state): State<BrokerState>, Query(q): Query<AuthQuery>
         &secret,
         &format!("oauth|{oauth_state}|{verifier}"),
         600,
-    );
+    )
+    .unwrap_or_default();
     let dev = state.config.dev;
     let mut resp = axum::response::Redirect::to(&loc).into_response();
     append_cookie(
@@ -1110,7 +1111,8 @@ async fn oidc_cb(
         return err_page("provider did not return an email claim");
     };
     let back = cookie_of("tnl_back=").unwrap_or_else(|| "/".into());
-    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600);
+    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600)
+        .unwrap_or_default();
     let dev = state.config.dev;
     let mut resp =
         axum::response::Redirect::to(&crate::visitor_auth::safe_back(Some(&back))).into_response();
@@ -1219,7 +1221,8 @@ async fn otp_verify(State(state): State<BrokerState>, Form(f): Form<OtpForm>) ->
         Ok(s) => s,
         Err(e) => return err_page(&e.to_string()),
     };
-    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600);
+    let auth = crate::visitor_auth::VisitorAuthCookie::issue(&secret, &email, 12 * 3600)
+        .unwrap_or_default();
     let back = crate::visitor_auth::safe_back(Some(&f.back));
     let dev = state.config.dev;
     let mut resp = axum::response::Redirect::to(&back).into_response();

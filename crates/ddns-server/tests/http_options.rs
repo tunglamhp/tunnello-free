@@ -226,7 +226,7 @@ fn oidc_gate_redirects_without_cookie_and_503_when_unconfigured() {
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
     assert!(format!("{:?}", resp.headers().get("location")).contains("/__auth/oidc"));
     // valid cookie → pass through
-    let cookie = ddns_server::visitor_auth::VisitorAuthCookie::issue(b"s", "a@b.c", 3600);
+    let cookie = ddns_server::visitor_auth::VisitorAuthCookie::issue(b"s", "a@b.c", 3600).unwrap();
     let mut ok = req_with("GET", "/x", &[("Cookie", &format!("tnl_auth={cookie}"))]);
     assert!(
         ddns_server::http_options::apply_with_auth(

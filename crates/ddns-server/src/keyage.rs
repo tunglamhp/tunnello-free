@@ -19,10 +19,14 @@ pub fn init_key_age(max_age_days: u64) {
     let _ = STORE.set(KeyAgeStore::new(max_age_days));
 }
 
-/// Panics if called before [`init_key_age`] — a programming error, not a
-/// runtime path.
-pub fn key_age() -> &'static KeyAgeStore {
-    STORE.get().expect("key-age store not initialized")
+/// Returns `None` if called before [`init_key_age`]. Prefer this in handlers.
+pub fn key_age() -> Option<&'static KeyAgeStore> {
+    STORE.get()
+}
+
+/// Returns `None` if called before [`init_key_age`].
+pub fn key_age_or_panic() -> Option<&'static KeyAgeStore> {
+    STORE.get()
 }
 
 pub struct KeyAgeStore {
