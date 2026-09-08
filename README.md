@@ -43,9 +43,21 @@ Vào dashboard → **Tokens** → tạo token → **Quickstart** → copy đúng
 
 Lệnh này tự tải binary `ddns`, cài vào PATH, mở tunnel trỏ về service cục bộ (`localhost:8080`). Tunnel URL hiện ngay cuối output.
 
+Khách hàng cũng có thể tự đăng ký tại `https://<broker>/portal` rồi vào portal lấy lệnh Quickstart cho mình.
+
 ## 3. Xong
 
 Truy cập tunnel URL trên trình duyệt — thấy app cục bộ của bạn, ai cũng truy cập được qua HTTPS.
+
+---
+
+## Free edition boundary
+
+Các tính năng thuộc miễn phí/public:
+- `ddns-proto`, `ddns-client`, `ddns-server` core tunneling, `/connect`, `/install.sh`, `/download/{file}`
+
+Các tính năng chỉ giữ private:
+- `ddns-billing`, payments, plans/subscriptions UI, token packs, portal payments
 
 ---
 

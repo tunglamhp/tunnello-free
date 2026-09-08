@@ -1,6 +1,15 @@
 # Changelog
 
-Tất cả thay đổi đáng chú ý của **Tunello Free**.
+## Versioning
+
+- `free` releases use plain `X.Y.Z` tags.
+- `private` releases use `X.Y.Z-private` tags in the private repo.
+- `release/<major>.<minor>` branches preserve maintenance versions.
+
+## [Unreleased]
+
+### Planned
+- Keep free/public surface aligned with private broker core minus billing/plans UI.
 
 ## [0.10.3] — 2026-08-29
 
