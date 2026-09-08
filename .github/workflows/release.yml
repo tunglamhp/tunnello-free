@@ -3,6 +3,12 @@ name: Release
 # Tag-driven release: pushing a `v*` tag builds the client for every platform
 # the install script supports, the Linux broker binaries, and publishes a
 # GitHub release with the generated changelog + binaries as assets.
+#
+# Versioning:
+# - `vX.Y.Z` or `vX.Y.Z-free` tags must match [workspace.package] version
+#   in Cargo.toml exactly.
+# - CHANGELOG.md must contain a `## [version]` section for the release.
+# - The release notes prefer the CHANGELOG section when present.
 
 on:
   push:
@@ -25,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      release_notes: ${{ steps.notes.outputs.release_notes }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           V="${GITHUB_REF_NAME#v}"
-          V="${V%-free}"   # free-edition tags carry a -free suffix
+          V="${V%-free}"   # free-edition tags may carry a -free suffix
           CARGO_V="$(grep -m1 '^version' Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')"
           if [ "$CARGO_V" != "$V" ]; then
             echo "version mismatch: tag=$V workspace=$CARGO_V" >&2
@@ -43,6 +50,29 @@ jobs:
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Release $V (matches Cargo workspace)"
+
+      - name: Extract changelog section for release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          V="${V%-free}"
+          if grep -q "^## \[${V}\]" CHANGELOG.md; then
+            awk -v ver="$V" '
+              $0 ~ "^## \\[" ver "\\]" {p=1; print; next}
+              p && $0 ~ "^## \\[" {p=0}
+              p {print}
+            ' CHANGELOG.md > /tmp/release-notes.txt || true
+            echo "Using CHANGELOG.md section for $V"
+          else
+            echo "No CHANGELOG.md section for $V; release workflow will use GitHub auto notes" > /tmp/release-notes.txt
+          fi
+          if [ -s /tmp/release-notes.txt ]; then
+            echo "release_notes<<EOF" >> "$GITHUB_OUTPUT"
+            cat /tmp/release-notes.txt >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          fi
 
   web:
     runs-on: ubuntu-latest
@@ -191,8 +221,11 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ needs.meta.outputs.version }}
+          body: ${{ needs.meta.outputs.release_notes }}
           files: |
             artifacts/ddns-*
             archives/ddns-server-*.tar.gz
-          generate_release_notes: true
+          generate_release_notes: ${{ !needs.meta.outputs.release_notes }}
           fail_on_unmatched_files: true
