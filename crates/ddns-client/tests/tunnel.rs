@@ -290,17 +290,19 @@ async fn stalled_tcp_peer_does_not_wedge_session() {
     let (info, _tunnel_h) = spawn_tunnel(cli, &cert).await;
     let sni = format!("{}.tunnel.example.com", info.slug);
 
-    // Visitor 1: push 2 MiB at the stalled peer (well past the client's
-    // per-stream channel + socket buffering, so the client's local write
-    // blocks), then expect the stream to be closed by the client within a
-    // bounded window. Without the fix the client hangs forever.
+    // Visitor 1: push 64 MiB at the stalled peer. Linux TCP autotuning can
+    // buffer a couple of MiB entirely in kernel space (recv + send windows),
+    // so 2 MiB no longer guarantees the client's local write ever blocks —
+    // the stall then never trips and the stream legitimately stays open,
+    // hanging the visitor. 64 MiB is far beyond any autotuned window, so the
+    // client's write must block and the stall-close path fires.
     let v1 = tokio::spawn({
         let cert = cert.clone();
         let sni = sni.clone();
         async move {
             let mut tls = tls_tcp_connect(addr, &cert, &sni).await;
             let chunk = vec![0u8; 8192];
-            for _ in 0..256 {
+            for _ in 0..8192 {
                 if tls.write_all(&chunk).await.is_err() {
                     break;
                 }
