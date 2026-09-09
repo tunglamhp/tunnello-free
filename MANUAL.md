@@ -58,9 +58,12 @@ Required:
 
 Certificate (exactly one source):
   --cert FILE --key FILE  Static PEM cert chain + private key
-  --acme-email EMAIL      ACME (automatic certificates) via TLS-ALPN-01 (apex
-                          domains only; wildcards need DNS-01, which v1 does
-                          not drive)
+  --acme-email EMAIL      ACME automatic certificates. Default provider manual
+                          validates via TLS-ALPN-01 on :443 (apex only). With
+                          --acme-provider cloudflare|porkbun the broker
+                          validates via DNS-01 TXT records and obtains one
+                          certificate covering DOMAIN + *.DOMAIN (tunnels
+                          included) — no inbound validation port needed
   --dev                   Self-signed cert for DOMAIN, *.DOMAIN and loopback
                           addresses; writes <db>.dev-ca.pem for the client's
                           --ca-pem flag
@@ -75,6 +78,12 @@ Options:
   --download-dir PATH     Directory served by /download/{file}
   --web-dist PATH         Directory served by /_assets/{path} (default dist/public)
   --acme-directory URL    ACME directory override (default: ACME staging)
+  --acme-provider NAME    DNS-01 provider: manual (default) | cloudflare | porkbun
+  --acme-cf-token TOKEN   Cloudflare API token (zone-level; DNS edit)
+  --acme-cf-zone ZONE     Cloudflare zone id for --domain
+  --acme-porkbun-key KEY  Porkbun API key
+  --acme-porkbun-secret SECRET
+                          Porkbun API secret
 ```
 
 - The DB is migrated idempotently at startup (tokens, settings, domains,
@@ -144,9 +153,10 @@ A public status page exists per session at `/t/{slug}`.
 - **Custom** (`kind: custom`): an alternative hostname; when a tunnel binds a
   custom hostname and the client is live, that host routes to the tunnel
   (checked before `slug.<active-apex>`).
-- `validation_status` / `cert_status` are stored and displayed; Phase B
-  (DNS-01 ACME, CNAME/TXT/A validation) drives them out of
-  `pending`/`absent`. Until then, point `*.apex` at the broker yourself.
+- `validation_status` / `cert_status` are stored and displayed. With a
+  DNS-01 ACME provider (Cloudflare/Porkbun) the broker issues a wildcard
+  certificate covering `*.apex` itself; otherwise point `*.apex` at the
+  broker and supply a static wildcard cert (see `deploy/README.md`).
 
 ### 4.2 Tunnel profiles
 

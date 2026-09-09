@@ -95,6 +95,7 @@ pub fn broker_config(
         http_listen: None,
         stun_listen: None,
         acme: None,
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         download_dir: None,
         dev: true,
         base_url: "https://tunnel.example.com".to_string(),

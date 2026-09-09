@@ -42,6 +42,7 @@ qrcode.workspace = true
 sha2.workspace = true
 x509-parser.workspace = true
 rustls-acme.workspace = true
+p256.workspace = true
 reqwest.workspace = true
 parking_lot = "0.12"
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder", "tokio1", "hostname", "tokio1-rustls", "webpki-roots", "aws-lc-rs"] }
@@ -49,6 +50,7 @@ redis.workspace = true
 prometheus.workspace = true
 
 [dev-dependencies]
+p256.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 rusqlite.workspace = true

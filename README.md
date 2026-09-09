@@ -9,7 +9,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT"/></a>
   <a href="https://github.com/tunglamhp/tunnello-free/releases"><img src="https://img.shields.io/github/v/release/tunglamhp/tunnello-free" alt="Release"/></a>
-  <img src="https://img.shields.io/badge/version-0.10.3-6f42c1" alt="version 0.10.3"/>
+  <img src="https://img.shields.io/badge/version-0.11.0-6f42c1" alt="version 0.11.0"/>
 </p>
 
 ```
@@ -27,6 +27,11 @@ curl -sSL https://raw.githubusercontent.com/tunglamhp/tunnello-free/main/install
 Script tự cài Docker (nếu thiếu), clone repo, chạy `deploy.sh`, in ra URL + bước `/setup` đầu tiên. Mở URL đó trên trình duyệt → tạo tài khoản operator.
 
 Nâng cấp sau này: `cd /opt/tunnello/deploy && bash deploy.sh --update`.
+
+
+Phần mới nhất (xem CHANGELOG):
+- **ACME DNS-01** — đặt `DDNS_ACME_PROVIDER=cloudflare|porkbun` (kèm credentials trong `deploy/.env`): broker tự ghi TXT `_acme-challenge` và cấp một chứng chỉ Let's Encrypt cho apex + `*.domain` — mọi tunnel hostname đều có HTTPS, tự gia hạn, không cần mở cổng.
+- **`deploy.sh` preflight** — tự kiểm tra DNS (apex + wildcard) và mở firewall (ufw/firewalld); tắt bằng `DDNS_SKIP_DNS_CHECK=1` / `DDNS_SKIP_FIREWALL=1`.
 
 ## 2. Cài client trên máy muốn expose
 

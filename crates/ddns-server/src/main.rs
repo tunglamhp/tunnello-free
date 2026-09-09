@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ddns_server::{AcmeOptions, AcmeProvider, Broker, BrokerConfig, TokenStore};
+use ddns_server::{AcmeOptions, Broker, BrokerConfig, TokenStore};
 
 const USAGE: &str = "\
 Usage: ddns-server --domain DOMAIN [OPTIONS]
@@ -24,9 +24,19 @@ Required:
 
 Certificate (exactly one source):
   --cert FILE --key FILE  Static PEM cert chain + private key
-  --acme-email EMAIL      ACME (automatic certificates) via TLS-ALPN-01 (apex
-                          domains only; wildcards need DNS-01, which v1 does
-                          not drive)
+  --acme-email EMAIL      ACME automatic certificates. Default provider
+                          (manual) validates via TLS-ALPN-01 on :443 (apex
+                          only). With --acme-provider cloudflare|porkbun the
+                          broker validates via DNS-01 TXT records and obtains
+                          one certificate covering DOMAIN + *.DOMAIN (tunnels
+                          included) — no inbound validation port needed.
+  --acme-provider NAME    DNS-01 provider: manual (default) | cloudflare |
+                          porkbun
+  --acme-cf-token TOKEN   Cloudflare API token (zone-level; DNS edit)
+  --acme-cf-zone ZONE     Cloudflare zone id for --domain
+  --acme-porkbun-key KEY  Porkbun API key
+  --acme-porkbun-secret SECRET
+                          Porkbun API secret
   --dev                   Self-signed cert for DOMAIN, *.DOMAIN and loopback
                           addresses; writes <db>.dev-ca.pem for the client's
                           --ca-pem flag
@@ -70,6 +80,11 @@ struct Args {
     cert: Option<(PathBuf, PathBuf)>,
     acme_email: Option<String>,
     acme_directory: Option<String>,
+    acme_provider: String,
+    acme_cf_token: Option<String>,
+    acme_cf_zone: Option<String>,
+    acme_porkbun_key: Option<String>,
+    acme_porkbun_secret: Option<String>,
     dev: bool,
     redis_url: Option<String>,
     stun_port: Option<u16>,
@@ -92,6 +107,11 @@ fn parse(args: &[String]) -> Result<Args, String> {
     let mut key: Option<PathBuf> = None;
     let mut acme_email: Option<String> = None;
     let mut acme_directory: Option<String> = None;
+    let mut acme_provider: Option<String> = None;
+    let mut acme_cf_token: Option<String> = None;
+    let mut acme_cf_zone: Option<String> = None;
+    let mut acme_porkbun_key: Option<String> = None;
+    let mut acme_porkbun_secret: Option<String> = None;
     let mut redis_url: Option<String> = None;
     let mut stun_port: Option<u16> = None;
     let mut udp_port: Option<u16> = None;
@@ -141,6 +161,11 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--key" => key = Some(value(&mut i)?.into()),
             "--acme-email" => acme_email = Some(value(&mut i)?),
             "--acme-directory" => acme_directory = Some(value(&mut i)?),
+            "--acme-provider" => acme_provider = Some(value(&mut i)?),
+            "--acme-cf-token" => acme_cf_token = Some(value(&mut i)?),
+            "--acme-cf-zone" => acme_cf_zone = Some(value(&mut i)?),
+            "--acme-porkbun-key" => acme_porkbun_key = Some(value(&mut i)?),
+            "--acme-porkbun-secret" => acme_porkbun_secret = Some(value(&mut i)?),
             "--redis-url" => redis_url = Some(value(&mut i)?),
             "--stun-port" => {
                 stun_port = Some(value(&mut i)?.parse().map_err(|_| "bad --stun-port")?)
@@ -179,6 +204,54 @@ fn parse(args: &[String]) -> Result<Args, String> {
     if acme_directory.is_some() && acme_email.is_none() {
         return Err("--acme-directory requires --acme-email".to_string());
     }
+    let acme_provider = acme_provider.unwrap_or_else(|| "manual".to_string());
+    if acme_email.is_none() {
+        if acme_provider != "manual"
+            || acme_cf_token.is_some()
+            || acme_cf_zone.is_some()
+            || acme_porkbun_key.is_some()
+            || acme_porkbun_secret.is_some()
+        {
+            return Err(
+                "--acme-provider / DNS-provider credentials require --acme-email".to_string(),
+            );
+        }
+    } else {
+        match acme_provider.as_str() {
+            "manual" => {
+                if acme_cf_token.is_some()
+                    || acme_cf_zone.is_some()
+                    || acme_porkbun_key.is_some()
+                    || acme_porkbun_secret.is_some()
+                {
+                    return Err(
+                        "--acme-provider manual does not take DNS-provider credentials".to_string(),
+                    );
+                }
+            }
+            "cloudflare" => {
+                if acme_cf_token.is_none() || acme_cf_zone.is_none() {
+                    return Err(
+                        "--acme-provider cloudflare requires --acme-cf-token and --acme-cf-zone"
+                            .to_string(),
+                    );
+                }
+            }
+            "porkbun" => {
+                if acme_porkbun_key.is_none() || acme_porkbun_secret.is_none() {
+                    return Err(
+                        "--acme-provider porkbun requires --acme-porkbun-key and --acme-porkbun-secret"
+                            .to_string(),
+                    );
+                }
+            }
+            other => {
+                return Err(format!(
+                    "unknown --acme-provider: {other} (manual | cloudflare | porkbun)"
+                ))
+            }
+        }
+    }
 
     Ok(Args {
         domain,
@@ -197,6 +270,11 @@ fn parse(args: &[String]) -> Result<Args, String> {
         },
         acme_email,
         acme_directory,
+        acme_provider,
+        acme_cf_token,
+        acme_cf_zone,
+        acme_porkbun_key,
+        acme_porkbun_secret,
         dev,
         redis_url,
         stun_port,
@@ -275,13 +353,32 @@ async fn run() -> Result<(), String> {
     } else {
         // --acme-email, guaranteed by parse's cert-source validation.
         let email = opts.acme_email.clone().expect("acme email set");
+        let provider = match opts.acme_provider.as_str() {
+            "manual" => ddns_server::AcmeProvider::Manual,
+            "cloudflare" => ddns_server::AcmeProvider::Cloudflare {
+                api_token: opts.acme_cf_token.clone().expect("cf token"),
+                zone_id: opts.acme_cf_zone.clone().expect("cf zone"),
+            },
+            "porkbun" => ddns_server::AcmeProvider::Porkbun {
+                api_key: opts.acme_porkbun_key.clone().expect("porkbun key"),
+                secret: opts.acme_porkbun_secret.clone().expect("porkbun secret"),
+            },
+            other => unreachable!("provider validated in parse: {other}"),
+        };
+        // DNS-01 providers issue one certificate covering the apex AND its
+        // wildcard — the dashboard plus every tunnel subdomain.
+        let domains = if provider.uses_dns01() {
+            vec![opts.domain.clone(), format!("*.{}", opts.domain)]
+        } else {
+            vec![opts.domain.clone()]
+        };
         (
             Vec::new(),
             Vec::new(),
             Some(AcmeOptions {
-                domains: vec![opts.domain.clone()],
+                domains,
                 contact_email: Some(email),
-                provider: AcmeProvider::Manual,
+                provider,
                 directory_url: opts.acme_directory.clone(),
             }),
             None,
@@ -336,6 +433,7 @@ async fn run() -> Result<(), String> {
             .stun_port
             .map(|p| format!("0.0.0.0:{p}").parse().unwrap()),
         acme,
+        acme_cache_dir: std::path::PathBuf::from("/data/acme_cache"),
         download_dir: opts.download_dir,
         web_dist: opts.web_dist,
         dev: opts.dev,

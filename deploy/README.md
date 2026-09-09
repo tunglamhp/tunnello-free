@@ -33,8 +33,9 @@ cp .env.example .env
 mkdir certs
 # place fullchain.pem + privkey.pem in certs/
 
-# Option B — ACME (automatic certificates) TLS-ALPN-01 (apex only):
-#   set DDNS_ACME_EMAIL in .env
+# Option B — ACME TLS-ALPN-01 (apex only): set DDNS_ACME_EMAIL.
+# Option C — ACME DNS-01 (apex + *.domain in one cert):
+#   set DDNS_ACME_EMAIL + DDNS_ACME_PROVIDER=cloudflare|porkbun (+ creds)
 
 docker compose up -d --build
 ```
@@ -82,12 +83,23 @@ Exactly one source is required (enforced by `entrypoint.sh`):
 
 1. **Static PEM** — `DDNS_CERT`/`DDNS_KEY`. Renew externally (certbot, your
    CA) and `docker compose restart broker`. No auto-reload yet.
-2. **ACME (automatic certificates) TLS-ALPN-01** — `DDNS_ACME_EMAIL`. Auto-issued/renewed by
-   the broker for the **apex only**. Wildcard `*.domain` certs need DNS-01,
-   which is Phase B (deferred); until then, either use a wildcard cert via
-   option 1 or point every fixed tunnel subdomain at the broker and let the
-   broker present the apex cert (visitor TLS validates against the wildcard
-   you must provision yourself).
+2. **ACME — TLS-ALPN-01** (`DDNS_ACME_EMAIL`, provider default/manual) —
+   auto-issued/renewed by the broker for the **apex only**, validated on
+   :443. Needs the apex A/AAAA record pointing at this host.
+3. **ACME — DNS-01** (`DDNS_ACME_EMAIL` + `DDNS_ACME_PROVIDER=cloudflare|porkbun`)
+   — the broker writes the `_acme-challenge` TXT records itself through the
+   provider API and obtains **one certificate covering the apex AND
+   `*.domain`**, so the dashboard *and every tunnel subdomain* get valid TLS.
+   No inbound validation port is required (handy when :443 is firewalled or
+   you are behind CGNAT at the edge). Automatic renewal swaps the served
+   certificate in place — no restart. Cache lives in `/data/acme_cache`
+   (account key + last certificate); keep that volume backed up.
+   - Cloudflare: `DDNS_ACME_CF_TOKEN` (zone-scoped, DNS edit) +
+     `DDNS_ACME_CF_ZONE`.
+   - Porkbun: `DDNS_ACME_PORKBUN_KEY` + `DDNS_ACME_PORKBUN_SECRET`.
+
+`deploy.sh` preflights the firewall and DNS (apex + wildcard resolution)
+before starting; disable with `DDNS_SKIP_FIREWALL=1` / `DDNS_SKIP_DNS_CHECK=1`.
 
 ## Operator dashboard & API
 

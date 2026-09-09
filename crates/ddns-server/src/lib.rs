@@ -14,6 +14,7 @@ pub mod config;
 pub mod connector;
 pub mod debug_capture;
 pub mod domain;
+pub mod dns_acme;
 pub mod hot;
 pub mod http_app;
 pub mod http_options;
@@ -60,7 +61,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio_rustls::TlsAcceptor;
 use tower::ServiceExt;
 use tracing::info;
 
@@ -118,6 +118,7 @@ pub struct Broker {
     _downgrade_task: Option<JoinHandle<()>>,
     _usage_task: Option<JoinHandle<()>>,
     _acme_task: Option<JoinHandle<()>>,
+    _dns_task: Option<JoinHandle<()>>,
 }
 
 /// Grace window for connections to finish after drain is signaled.
@@ -180,6 +181,10 @@ impl Broker {
             h.abort();
             let _ = h.await;
         }
+        if let Some(h) = self._dns_task {
+            h.abort();
+            let _ = h.await;
+        }
     }
 
     /// Production entry: serve until SIGINT/SIGTERM, then drain and exit.
@@ -214,9 +219,10 @@ impl Broker {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let tls_cfg = tls::server_config(&config)?;
-        let acceptor = tls_cfg.acceptor;
+        let slot = tls_cfg.slot;
         let challenge_store = tls_cfg.challenge_store;
         let acme_state = tls_cfg.acme_state;
+        let dns_acme = tls_cfg.dns_acme;
 
         let listener = TcpListener::bind(config.listen).await?;
         let addr = listener.local_addr()?;
@@ -248,8 +254,11 @@ impl Broker {
         };
 
         // Drive the ACME state machine (issuance + renewal) only now that both
-        // binds succeeded.
+        // binds succeeded. The DNS-01 engine likewise starts after binds: it
+        // swaps certificates into the acceptor slot shared with the accept
+        // loop below.
         let acme_task = acme_state.map(|state| tokio::spawn(drive_acme(state)));
+        let dns_task = dns_acme.map(|controller| controller.spawn());
 
         let registry = Arc::new(Registry::with_limits(
             config.max_sessions,
@@ -337,7 +346,7 @@ impl Broker {
         let conn_cap = config.max_sessions.saturating_mul(16).max(256);
         let permits = Arc::new(tokio::sync::Semaphore::new(conn_cap));
 
-        let handle = tokio::spawn(accept_loop(listener, acceptor, app, state, permits));
+        let handle = tokio::spawn(accept_loop(listener, slot, app, state, permits));
 
         Ok(Broker {
             addr,
@@ -351,6 +360,7 @@ impl Broker {
             _downgrade_task: None,
             _usage_task: None,
             _acme_task: acme_task,
+            _dns_task: dns_task,
         })
     }
 }
@@ -381,7 +391,7 @@ async fn drive_acme(mut state: rustls_acme::AcmeState<std::io::Error, std::io::E
 
 async fn accept_loop(
     listener: TcpListener,
-    acceptor: TlsAcceptor,
+    slot: crate::tls::AcceptorSlot,
     app: axum::Router,
     state: BrokerState,
     permits: Arc<tokio::sync::Semaphore>,
@@ -397,7 +407,10 @@ async fn accept_loop(
                     tracing::warn!(%peer, "connection cap reached; dropping connection");
                     continue;
                 };
-                let acceptor = acceptor.clone();
+                // Clone the current acceptor — the DNS-01 engine swaps the
+                // slot contents on renewal, so each connection sees the
+                // freshest certificate without blocking the accept loop.
+                let acceptor = slot.get();
                 let state = state.clone();
                 let app = app.clone();
                 tokio::spawn(async move {

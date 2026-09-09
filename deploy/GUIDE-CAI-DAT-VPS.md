@@ -56,7 +56,9 @@ Script sẽ tự động (khi chạy bằng `root`):
 ### 2.1. Nguồn chứng chỉ — chọn đúng 1
 
 1. **PEM tĩnh (khuyên dùng)** — đặt `fullchain.pem` + `privkey.pem` vào `deploy/certs/` (mount read-only). Gia hạn ngoài (certbot, CA của bạn) rồi `docker compose restart broker`.
-2. **ACME (chứng chỉ tự động) TLS-ALPN-01** — set `DDNS_ACME_EMAIL`; broker tự cấp + tự gia hạn cho **apex**. (Wildcard cần DNS-01 — chưa hỗ trợ; nếu cần wildcard hãy dùng PEM tĩnh.)
+2. **ACME (chứng chỉ tự động)** — set `DDNS_ACME_EMAIL`. Hai cách xác thực:
+   - **TLS-ALPN-01** (mặc định, provider `manual`): broker tự cấp + gia hạn cho **apex**; cổng 443 phải mở.
+   - **DNS-01** (`DDNS_ACME_PROVIDER=cloudflare|porkbun` kèm credentials trong `.env`): broker tự ghi bản ghi TXT `_acme-challenge` và cấp **MỘT** chứng chỉ cho apex + `*.domain` — dashboard và mọi tunnel hostname đều có HTTPS hợp lệ, tự gia hạn + hoán đổi không cần restart, không cần mở cổng validation.
 
 > ACME account/certificate cache được lưu trong `/data/acme_cache` trên volume
 > `broker-data`, nên vẫn tồn tại sau khi container restart/rebuild. Hãy backup
@@ -99,8 +101,7 @@ Khả thi khi modem chuyển **bridge mode** để router nhà nhận **public I
    ```
    Timer chạy mỗi 5 phút: IP đổi → cập nhật A record apex + wildcard (TTL 300).
    Kiểm tra thủ công: `/opt/ddns-deploy/ddns-porkbun.sh --dry-run`.
-4. **Wildcard TLS** — project ACME chỉ làm apex TLS-ALPN-01, tunnel cần wildcard:
-   cấp ngoài bằng **certbot + plugin dns-porkbun** (DNS-01, dùng chung API key):
+4. **Wildcard TLS** — nếu broker dùng ACME DNS-01 (Cloudflare/Porkbun) thì đã có sẵn chứng chỉ phủ `*.domain`. Khi cần wildcard với DNS provider khác, cấp ngoài bằng **certbot + plugin dns-porkbun** (dùng chung API key):
    ```bash
    sudo apt install certbot python3-certbot-dns-porkbun
    sudo certbot certonly --dns-porkbun --dns-porkbun-credentials /etc/porkbun.ini \
@@ -163,6 +164,10 @@ tắt khi home hồi.
 | `DDNS_DOMAIN` | Tên miền apex (bắt buộc) |
 | `DDNS_CERT` / `DDNS_KEY` | Đường dẫn PEM trong container (`/certs/...`) |
 | `DDNS_ACME_EMAIL` | Email ACME (nguồn cert #2) |
+| `DDNS_ACME_PROVIDER` | `manual` (TLS-ALPN-01, apex) / `cloudflare` / `porkbun` (DNS-01, apex + wildcard) |
+| `DDNS_ACME_CF_TOKEN` / `DDNS_ACME_CF_ZONE` | Cloudflare API token (zone-scoped, DNS edit) + zone id |
+| `DDNS_ACME_PORKBUN_KEY` / `DDNS_ACME_PORKBUN_SECRET` | Porkbun API key + secret |
+| `DDNS_SKIP_DNS_CHECK` / `DDNS_SKIP_FIREWALL` | Tắt preflight DNS / firewall của `deploy.sh` (=1) |
 | `DDNS_HTTP_LISTEN=0.0.0.0:80` | Bật listener HTTP (301→HTTPS + HTTP-01) |
 | `DDNS_MAX_SESSIONS` | Giới hạn session đồng thời (mặc định 256) |
 | `DDNS_BASE_URL` | URL ngoài dùng trong email (xác minh/reset) |

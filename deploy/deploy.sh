@@ -10,6 +10,12 @@
 # the image, starts the stack, and prints the first-run steps. Re-run with
 # --update to pull + rebuild + restart.
 #
+# Preflight: the firewall rules the broker needs are applied (ufw /
+# firewalld), and DNS is checked — the apex must resolve before ACME
+# issuance can validate, and tunnel hostnames need a wildcard record.
+#   DDNS_SKIP_FIREWALL=1   operator manages the firewall
+#   DDNS_SKIP_DNS_CHECK=1  skip the DNS resolution preflight
+#
 # Non-interactive (for scripts/CI): provide the env vars below.
 set -euo pipefail
 
@@ -35,16 +41,7 @@ command -v docker >/dev/null 2>&1 || { echo "error: docker install failed — in
 docker compose version >/dev/null 2>&1 || { echo "error: docker compose v2 plugin is required (get.docker.com installs it; otherwise install docker-compose-plugin)" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# 1. firewall — open the P2P STUN port so visitor browsers can reach the
-# broker's WebRTC ICE endpoint (UDP hole-punching for the data plane). The
-# HTTPS/WSS port is opened by the operator per deploy/README.md §2.
-# ---------------------------------------------------------------------------
-if command -v ufw >/dev/null 2>&1; then
-    ufw allow "${DDNS_STUN_PORT:-3478}/udp" >/dev/null   # WebRTC ICE STUN (P2P data plane)
-fi
-
-# ---------------------------------------------------------------------------
-# 2. configuration — deploy/.env from answers/env (never overwrite user edits
+# 1. configuration — deploy/.env from answers/env (never overwrite user edits
 #    unless explicitly recreating).
 # ---------------------------------------------------------------------------
 ENV_FILE="$DEPLOY_DIR/.env"
@@ -61,19 +58,48 @@ if [ ! -f "$ENV_FILE" ] || [ "${DDNS_RECREATE_ENV:-0}" = "1" ]; then
     if [ "$cert_sources" -eq 0 ]; then
         echo "Pick a certificate source:"
         echo "  1) Static PEM  (place fullchain.pem + privkey.pem in $DEPLOY_DIR/certs)"
-        echo "  2) Let's Encrypt TLS-ALPN-01 (apex domain, port 443 reachable)"
+        echo "  2) Let's Encrypt automatic (ACME)"
         echo "  3) Dev self-signed (testing only — NEVER in production)"
         printf "choice [1/2/3]: "
         read -r cert_choice
         case "$cert_choice" in
             1) DDNS_CERT=/certs/fullchain.pem DDNS_KEY=/certs/privkey.pem ;;
-            2) printf "ACME contact email: " && read -r DDNS_ACME_EMAIL ;;
+            2)
+                printf "ACME contact email: " && read -r DDNS_ACME_EMAIL
+                echo "ACME validation method (DNS-01 gives you *.domain coverage, no open port needed):"
+                echo "  1) TLS-ALPN-01 — apex only, port 443 must be reachable"
+                echo "  2) Cloudflare DNS-01 — writes TXT via the Cloudflare API (needs zone id)"
+                echo "  3) Porkbun DNS-01 — writes TXT via the Porkbun API"
+                printf "choice [1/2/3]: "
+                read -r acme_choice
+                case "$acme_choice" in
+                    2) DDNS_ACME_PROVIDER=cloudflare ;;
+                    3) DDNS_ACME_PROVIDER=porkbun ;;
+                    *) DDNS_ACME_PROVIDER=manual ;;
+                esac
+                ;;
             3) DDNS_DEV=1 ;;
             *) echo "invalid choice" >&2; exit 1 ;;
         esac
     elif [ "$cert_sources" -gt 1 ]; then
         echo "error: exactly one cert source: DDNS_CERT+DDNS_KEY, DDNS_ACME_EMAIL, or DDNS_DEV=1" >&2
         exit 1
+    fi
+
+    # Default ACME provider is manual (TLS-ALPN-01, apex only).
+    DDNS_ACME_PROVIDER="${DDNS_ACME_PROVIDER:-manual}"
+    if [ -n "${DDNS_ACME_EMAIL:-}" ] && [ "$DDNS_ACME_PROVIDER" != "manual" ]; then
+        case "$DDNS_ACME_PROVIDER" in
+            cloudflare)
+                : "${DDNS_ACME_CF_TOKEN:?error: --acme-provider cloudflare needs DDNS_ACME_CF_TOKEN (zone-scoped, DNS edit)}"
+                : "${DDNS_ACME_CF_ZONE:?error: --acme-provider cloudflare needs DDNS_ACME_CF_ZONE (Cloudflare zone id)}"
+                ;;
+            porkbun)
+                : "${DDNS_ACME_PORKBUN_KEY:?error: --acme-provider porkbun needs DDNS_ACME_PORKBUN_KEY}"
+                : "${DDNS_ACME_PORKBUN_SECRET:?error: --acme-provider porkbun needs DDNS_ACME_PORKBUN_SECRET}"
+                ;;
+            *) echo "error: unknown DDNS_ACME_PROVIDER=$DDNS_ACME_PROVIDER (manual | cloudflare | porkbun)" >&2; exit 1 ;;
+        esac
     fi
 
     if [ "${DDNS_DEV:-0}" != "1" ]; then
@@ -90,14 +116,24 @@ if [ ! -f "$ENV_FILE" ] || [ "${DDNS_RECREATE_ENV:-0}" = "1" ]; then
         [ -n "${DDNS_CERT:-}" ] && echo "DDNS_CERT=$DDNS_CERT"
         [ -n "${DDNS_KEY:-}" ] && echo "DDNS_KEY=$DDNS_KEY"
         [ -n "${DDNS_ACME_EMAIL:-}" ] && echo "DDNS_ACME_EMAIL=$DDNS_ACME_EMAIL"
+        if [ -n "${DDNS_ACME_EMAIL:-}" ]; then
+            echo "DDNS_ACME_PROVIDER=$DDNS_ACME_PROVIDER"
+            [ -n "${DDNS_ACME_CF_TOKEN:-}" ] && echo "DDNS_ACME_CF_TOKEN=$DDNS_ACME_CF_TOKEN"
+            [ -n "${DDNS_ACME_CF_ZONE:-}" ] && echo "DDNS_ACME_CF_ZONE=$DDNS_ACME_CF_ZONE"
+            [ -n "${DDNS_ACME_PORKBUN_KEY:-}" ] && echo "DDNS_ACME_PORKBUN_KEY=$DDNS_ACME_PORKBUN_KEY"
+            [ -n "${DDNS_ACME_PORKBUN_SECRET:-}" ] && echo "DDNS_ACME_PORKBUN_SECRET=$DDNS_ACME_PORKBUN_SECRET"
+        fi
         [ "${DDNS_DEV:-0}" = "1" ] && echo "DDNS_DEV=1"
     } >> "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "wrote $ENV_FILE (secrets: chmod 600)"
 fi
 
-# Optional integrations pass through from the shell if set.
-for var in DDNS_BASE_URL \
+# Optional integrations + ACME DNS-01 credentials pass through from the shell
+# (an existing .env is kept as-is, but exported vars are appended when the
+# matching key is absent).
+for var in DDNS_BASE_URL DDNS_ACME_PROVIDER DDNS_ACME_CF_TOKEN DDNS_ACME_CF_ZONE \
+           DDNS_ACME_PORKBUN_KEY DDNS_ACME_PORKBUN_SECRET \
            DDNS_SMTP_HOST DDNS_SMTP_PORT DDNS_SMTP_USER DDNS_SMTP_PASS \
            DDNS_SMTP_FROM DDNS_SMTP_TLS; do
     if [ -n "${!var:-}" ] && ! grep -q "^$var=" "$ENV_FILE"; then
@@ -115,6 +151,71 @@ if ! grep -q '^DDNS_BASE_URL=' "$ENV_FILE"; then
         echo "DDNS_BASE_URL=https://$domain_from_env" >> "$ENV_FILE"
     else
         echo "DDNS_BASE_URL=https://$domain_from_env:$public_port" >> "$ENV_FILE"
+    fi
+fi
+
+env_val() { # env_val KEY -> value from deploy/.env
+    grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2
+}
+
+# ---------------------------------------------------------------------------
+# 2. firewall — HTTPS/WSS, the WebRTC ICE STUN port, and (when enabled) the
+# WireGuard control plane. Handles ufw and firewalld; on hosts with neither
+# (or a non-root run) prints the exact rules to apply. Idempotent.
+# ---------------------------------------------------------------------------
+if [ "${DDNS_SKIP_FIREWALL:-0}" != "1" ]; then
+    fw_https_port="$(env_val DDNS_PUBLIC_PORT)"; fw_https_port="${fw_https_port:-443}"
+    fw_stun_port="$(env_val DDNS_STUN_PORT)";  fw_stun_port="${fw_stun_port:-3478}"
+    fw_http_listen="$(env_val DDNS_HTTP_LISTEN)"
+    fw_wg_port="$(env_val WG_SERVERPORT)"
+
+    need_rules=("${fw_https_port}/tcp:HTTPS + WSS + ACME TLS-ALPN-01")
+    need_rules+=("${fw_stun_port}/udp:WebRTC ICE STUN (P2P data plane)")
+    [ -n "$fw_http_listen" ] && need_rules+=("80/tcp:HTTP redirect listener (when DDNS_HTTP_LISTEN is set)")
+    [ -n "$fw_wg_port" ] && need_rules+=("${fw_wg_port}/udp:WireGuard control plane (WG_SERVERPORT)")
+
+    apply_rule() { echo "firewall: allow $1 — $2"; }
+
+    if command -v ufw >/dev/null 2>&1; then
+        if [ "$(id -u)" = "0" ]; then
+            for spec in "${need_rules[@]}"; do
+                port_proto="${spec%%:*}"
+                ufw allow "$port_proto" >/dev/null 2>&1 || true
+                apply_rule "$port_proto" "${spec#*:}"
+            done
+            ufw_status="$(ufw status 2>/dev/null | head -1 || true)"
+            case "$ufw_status" in
+                *active*|*Status:\ active*) : ;;
+                *)
+                    echo "firewall: ufw is installed but not active. After confirming SSH is allowed:"
+                    echo "    ufw allow OpenSSH && ufw --force enable"
+                    ;;
+            esac
+        else
+            echo "firewall: not root — apply these yourself (or re-run deploy.sh as root):"
+            for spec in "${need_rules[@]}"; do
+                echo "    sudo ufw allow ${spec%%:*}"
+            done
+        fi
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        if [ "$(id -u)" = "0" ] && firewall-cmd --state >/dev/null 2>&1; then
+            for spec in "${need_rules[@]}"; do
+                port_proto="${spec%%:*}"
+                firewall-cmd --permanent --add-port="$port_proto" >/dev/null 2>&1 || true
+                apply_rule "$port_proto" "${spec#*:}"
+            done
+            firewall-cmd --reload >/dev/null 2>&1 || true
+        else
+            echo "firewall: firewalld — apply these yourself (or re-run deploy.sh as root):"
+            for spec in "${need_rules[@]}"; do
+                echo "    sudo firewall-cmd --permanent --add-port=${spec%%:*} && sudo firewall-cmd --reload"
+            done
+        fi
+    else
+        echo "firewall: no ufw/firewalld detected — open these in your cloud security group / VPS panel:"
+        for spec in "${need_rules[@]}"; do
+            echo "    allow ${spec%%:*}  (${spec#*:})"
+        done
     fi
 fi
 
@@ -139,7 +240,62 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. install / update
+# 4. DNS preflight — apex must resolve for ACME/dashboard; tunnel hostnames
+# need a wildcard record. Warnings only, except ACME which cannot work
+# before DNS points at this server.
+# ---------------------------------------------------------------------------
+dns_preflight() {
+    [ "${DDNS_SKIP_DNS_CHECK:-0}" = "1" ] && return 0
+    local domain="$1"
+    local apex host_public label wc apex_first_v6
+    [ -z "$domain" ] && return 0
+
+    resolve_host() {
+        local h="$1" out
+        if command -v dig >/dev/null 2>&1; then
+            out="$(dig +short "$h" A 2>/dev/null | head -1; dig +short "$h" AAAA 2>/dev/null | head -1)"
+        elif command -v host >/dev/null 2>&1; then
+            out="$(host -t A "$h" 2>/dev/null | awk '/has address/{print $NF}')"
+        elif command -v nslookup >/dev/null 2>&1; then
+            out="$(nslookup -type=A "$h" 2>/dev/null | awk '/^Address: /{print $2; exit}')"
+        else
+            out="$(getent ahosts "$h" 2>/dev/null | awk 'NR==1{print $1}')"
+        fi
+        printf '%s' "$out"
+    }
+
+    apex="$(resolve_host "$domain")"
+    if [ -z "$apex" ]; then
+        echo "dns: warning — $domain did not resolve. Point its A/AAAA record at this host."
+        if [ -n "${DDNS_ACME_EMAIL:-}" ] && [ "${DDNS_DEV:-0}" != "1" ]; then
+            echo "dns: error — ACME cannot issue before the apex resolves to this server. Fix DNS, then re-run (or DDNS_SKIP_DNS_CHECK=1 to force)." >&2
+            exit 1
+        fi
+    else
+        host_public="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+        if [ -n "$host_public" ] && [ "$apex" != "$host_public" ]; then
+            echo "dns: note — $domain resolves to $apex, this host's public IP is $host_public."
+            echo "     (Expected when DNS is stale/propagating, behind a CDN/proxy, or this is a backup VPS.)"
+        else
+            echo "dns: apex $domain -> $apex ok"
+        fi
+    fi
+
+    label="$(date +%s)-probe"
+    wc="$(resolve_host "$label.$domain")"
+    if [ -z "$wc" ]; then
+        echo "dns: warning — no wildcard record for *.$domain detected. Tunnel hostnames"
+        echo "     (<slug>.$domain) will not resolve. Add a wildcard A/AAAA record (or per-tunnel A records)."
+    else
+        echo "dns: wildcard *.$domain -> $wc ok"
+    fi
+}
+
+DOMAIN="$(grep -E '^DDNS_DOMAIN=' "$ENV_FILE" | head -1 | cut -d= -f2)"
+dns_preflight "$DOMAIN"
+
+# ---------------------------------------------------------------------------
+# 5. install / update
 # ---------------------------------------------------------------------------
 if [ "$MODE" = "--update" ]; then
     echo "updating …"
@@ -152,9 +308,8 @@ echo "building + starting …"
 docker compose -f "$SRC/deploy/docker-compose.yml" up -d --build
 
 # ---------------------------------------------------------------------------
-# 5. done
+# 6. done
 # ---------------------------------------------------------------------------
-DOMAIN="$(grep -E '^DDNS_DOMAIN=' "$ENV_FILE" | head -1 | cut -d= -f2)"
 BASE_URL="$(grep -E '^DDNS_BASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2)"
 cat <<EOF
 

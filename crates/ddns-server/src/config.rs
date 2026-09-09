@@ -12,10 +12,10 @@ pub struct AcmeOptions {
     pub domains: Vec<String>,
     /// Contact email (without `mailto:` prefix — added automatically).
     pub contact_email: Option<String>,
-    /// DNS-01 provider for challenges that require it. The default validation
-    /// method is TLS-ALPN-01 (handled automatically by rustls-acme on port
-    /// 443); this provider is wired for the manual challenge store and for
-    /// future DNS-01 integration.
+    /// DNS-01 provider driving issuance when set. `Manual` (default) keeps
+    /// the rustls-acme TLS-ALPN-01 state machine (apex-only, no DNS changes);
+    /// `Cloudflare`/`Porkbun` switch issuance to the DNS-01 TXT engine, which
+    /// also covers wildcard domains.
     pub provider: AcmeProvider,
     /// ACME directory URL. `None` → Let's Encrypt production (the default in
     /// `tls.rs`); set to the staging URL for tests.
@@ -25,10 +25,25 @@ pub struct AcmeOptions {
 /// DNS-01 challenge provider selection.
 #[derive(Debug, Clone)]
 pub enum AcmeProvider {
-    /// Operator deploys TXT records manually via the dashboard.
+    /// Legacy default: TLS-ALPN-01 validation on :443 (no DNS changes, no
+    /// credentials). Apex-only — wildcard domains are rejected (Let's Encrypt
+    /// requires DNS-01 for wildcards).
     Manual,
-    /// Cloudflare API v4 with zone-level API token.
+    /// Cloudflare API v4 with a zone-level API token (DNS-01, wildcard-capable).
     Cloudflare { api_token: String, zone_id: String },
+    /// Porkbun DNS API key + secret (DNS-01, wildcard-capable).
+    Porkbun { api_key: String, secret: String },
+}
+
+impl AcmeProvider {
+    /// Whether issuance is driven by the DNS-01 TXT engine (vs. the legacy
+    /// rustls-acme TLS-ALPN-01 state machine). Wildcards require this.
+    pub fn uses_dns01(&self) -> bool {
+        matches!(
+            self,
+            AcmeProvider::Cloudflare { .. } | AcmeProvider::Porkbun { .. }
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +87,10 @@ pub struct BrokerConfig {
     /// ACME certificate provisioning. When `Some`, `tls_cert_pem` and
     /// `tls_key_pem` MUST be empty. Defaults to `None` (static certs).
     pub acme: Option<AcmeOptions>,
+    /// Directory for the ACME account key + issued-certificate cache. Shared
+    /// by the legacy TLS-ALPN-01 path (rustls-acme `DirCache`) and the DNS-01
+    /// engine. Must live on the persistent broker volume.
+    pub acme_cache_dir: std::path::PathBuf,
     /// Directory containing static binaries for `/download/{file}`. When
     /// `None`, `/download/` always returns 404.
     pub download_dir: Option<std::path::PathBuf>,
@@ -106,6 +125,7 @@ impl Default for BrokerConfig {
             http_listen: None,
             stun_listen: None,
             acme: None,
+            acme_cache_dir: std::path::PathBuf::from("/data/acme_cache"),
             download_dir: None,
             dev: false,
             base_url: "http://127.0.0.1:8443".into(),
@@ -130,19 +150,20 @@ impl BrokerConfig {
     }
 
     /// Validate mutual-exclusion: acme and explicit certs cannot both be set;
-    /// wildcard ACME domains need DNS-01, which v1 cannot drive.
+    /// wildcard ACME domains require a DNS-01 provider (Cloudflare/Porkbun).
     pub fn validate(&self) -> Result<(), String> {
         if self.acme.is_some() && (!self.tls_cert_pem.is_empty() || !self.tls_key_pem.is_empty()) {
             return Err("acme and explicit tls_cert_pem/tls_key_pem are mutually exclusive".into());
         }
         if let Some(acme) = &self.acme
             && acme.domains.iter().any(|d| d.starts_with("*."))
+            && !acme.provider.uses_dns01()
         {
             return Err(
-                "acme wildcard domains ('*.') require DNS-01 validation, which is not wired in \
-                 v1 (rustls-acme 0.12 validates via TLS-ALPN-01 only, and ACME (automatic \
-                 certificates) offers only DNS-01 for wildcards) — use apex-only domains with \
-                 ACME, or static certificates"
+                "acme wildcard domains ('*.') require DNS-01 validation, which needs a DNS \
+                 provider — set --acme-provider cloudflare (with --acme-cf-token/--acme-cf-zone) \
+                 or porkbun (with --acme-porkbun-key/--acme-porkbun-secret); the default manual \
+                 provider validates via TLS-ALPN-01 on :443 (apex-only)"
                     .into(),
             );
         }
@@ -166,5 +187,43 @@ mod tests {
             ..config
         };
         assert_eq!(config.http_url_for("app"), "https://app.example.test:8443");
+    }
+
+    #[test]
+    fn wildcard_acme_domain_requires_dns_provider() {
+        let config = BrokerConfig {
+            domain: "example.test".into(),
+            acme: Some(AcmeOptions {
+                domains: vec!["*.example.test".into()],
+                contact_email: Some("admin@example.test".into()),
+                provider: AcmeProvider::Manual,
+                directory_url: None,
+            }),
+            tls_cert_pem: Vec::new(),
+            tls_key_pem: Vec::new(),
+            ..BrokerConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("wildcard"), "{err}");
+    }
+
+    #[test]
+    fn wildcard_acme_domain_validates_with_dns_provider() {
+        let config = BrokerConfig {
+            domain: "example.test".into(),
+            acme: Some(AcmeOptions {
+                domains: vec!["example.test".into(), "*.example.test".into()],
+                contact_email: Some("admin@example.test".into()),
+                provider: AcmeProvider::Cloudflare {
+                    api_token: "token".into(),
+                    zone_id: "zone".into(),
+                },
+                directory_url: None,
+            }),
+            tls_cert_pem: Vec::new(),
+            tls_key_pem: Vec::new(),
+            ..BrokerConfig::default()
+        };
+        assert!(config.validate().is_ok());
     }
 }
