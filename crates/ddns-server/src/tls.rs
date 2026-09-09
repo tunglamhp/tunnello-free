@@ -109,11 +109,8 @@ fn bootstrap_acceptor(domain: &str) -> Result<TlsAcceptor, String> {
     let cert = params
         .self_signed(&key)
         .map_err(|e| format!("rcgen sign: {e}"))?;
-    static_server_config(
-        &cert.pem().into_bytes(),
-        &key.serialize_pem().into_bytes(),
-    )
-    .map_err(|e| format!("bootstrap acceptor: {e}"))
+    static_server_config(&cert.pem().into_bytes(), &key.serialize_pem().into_bytes())
+        .map_err(|e| format!("bootstrap acceptor: {e}"))
 }
 
 /// Build the TLS configuration from [`BrokerConfig`].

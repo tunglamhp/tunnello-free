@@ -153,7 +153,10 @@ impl DnsIssuer {
                 Ok(Some(secs_left)) => {
                     let nap = Duration::from_secs((secs_left - RENEW_LEAD_SECS).max(60) as u64)
                         .min(Duration::from_secs(12 * 3600));
-                    info!(nap_secs = nap.as_secs(), "ACME DNS-01 certificate valid; sleeping until renewal check");
+                    info!(
+                        nap_secs = nap.as_secs(),
+                        "ACME DNS-01 certificate valid; sleeping until renewal check"
+                    );
                     tokio::time::sleep(nap).await;
                 }
                 Ok(None) => {
@@ -192,9 +195,14 @@ impl DnsIssuer {
                     }
                 }
                 Ok(not_after) => {
-                    warn!(not_after, "ACME DNS-01: cached certificate expires soon; re-issuing");
+                    warn!(
+                        not_after,
+                        "ACME DNS-01: cached certificate expires soon; re-issuing"
+                    );
                 }
-                Err(e) => warn!(error = %e, "ACME DNS-01: cached certificate unparsable; re-issuing"),
+                Err(e) => {
+                    warn!(error = %e, "ACME DNS-01: cached certificate unparsable; re-issuing")
+                }
             }
         }
 
@@ -313,7 +321,7 @@ impl DnsIssuer {
                         return Err(format!(
                             "authorization for {} became {other}",
                             auth.identifier.value
-                        ))
+                        ));
                     }
                 }
             }
@@ -329,7 +337,10 @@ impl DnsIssuer {
         // Order should be ready now; finalize with a fresh leaf key + CSR.
         let order = session.order(&order_url).await?;
         if order.status != "ready" && order.status != "pending" {
-            return Err(format!("order not ready after validation (status: {})", order.status));
+            return Err(format!(
+                "order not ready after validation (status: {})",
+                order.status
+            ));
         }
         let leaf_key = KeyPair::generate().map_err(|e| format!("leaf keygen: {e}"))?;
         let csr = build_csr(&self.cfg.domains, &leaf_key)?;
@@ -564,7 +575,13 @@ impl AcmeSession {
             .ok_or_else(|| "ACME newNonce response missing Replay-Nonce".into())
     }
 
-    fn jws_body(&self, kid: Option<&str>, nonce: &str, url: &str, payload: &str) -> Result<String, String> {
+    fn jws_body(
+        &self,
+        kid: Option<&str>,
+        nonce: &str,
+        url: &str,
+        payload: &str,
+    ) -> Result<String, String> {
         let jwk_body = kid.is_none().then(|| JwkBody {
             alg: "ES256",
             crv: "P-256",
@@ -655,17 +672,16 @@ impl AcmeSession {
             .map(|d| serde_json::json!({ "type": "dns", "value": d }))
             .collect();
         let payload = serde_json::json!({ "identifiers": identifiers }).to_string();
-        let resp = self.signed_post(&self.directory.new_order, &payload).await?;
+        let resp = self
+            .signed_post(&self.directory.new_order, &payload)
+            .await?;
         let url = resp
             .headers()
             .get(reqwest::header::LOCATION)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
             .ok_or("ACME newOrder response missing Location header")?;
-        let order: OrderDto = resp
-            .json()
-            .await
-            .map_err(|e| format!("order parse: {e}"))?;
+        let order: OrderDto = resp.json().await.map_err(|e| format!("order parse: {e}"))?;
         Ok((url, order))
     }
 
@@ -691,13 +707,17 @@ impl AcmeSession {
     async fn finalize(&self, url: &str, csr_der: &[u8]) -> Result<OrderDto, String> {
         let payload = serde_json::json!({ "csr": b64url(csr_der) }).to_string();
         let resp = self.signed_post(url, &payload).await?;
-        resp.json().await.map_err(|e| format!("finalize parse: {e}"))
+        resp.json()
+            .await
+            .map_err(|e| format!("finalize parse: {e}"))
     }
 
     /// Download the PEM certificate chain (POST-as-GET on the certificate URL).
     async fn certificate(&self, url: &str) -> Result<String, String> {
         let resp = self.signed_post(url, "").await?;
-        resp.text().await.map_err(|e| format!("certificate read: {e}"))
+        resp.text()
+            .await
+            .map_err(|e| format!("certificate read: {e}"))
     }
 
     pub fn dns01_txt_value(&self, token: &str) -> Result<String, String> {
@@ -766,7 +786,9 @@ pub fn build_csr(domains: &[String], key: &KeyPair) -> Result<Vec<u8>, String> {
         CertificateParams::new(domains.to_vec()).map_err(|e| format!("csr params: {e}"))?;
     if let Some(first) = domains.first() {
         let cn = first.trim_start_matches("*.");
-        params.distinguished_name.push(rcgen::DnType::CommonName, cn);
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, cn);
     }
     let csr = params
         .serialize_request(key)
@@ -824,8 +846,7 @@ mod tests {
         let mut sans: Vec<String> = Vec::new();
         if let Some(exts) = csr.requested_extensions() {
             for ext in exts {
-                if let x509_parser::extensions::ParsedExtension::SubjectAlternativeName(san) = ext
-                {
+                if let x509_parser::extensions::ParsedExtension::SubjectAlternativeName(san) = ext {
                     for g in &san.general_names {
                         sans.push(g.to_string());
                     }
@@ -833,7 +854,8 @@ mod tests {
             }
         }
         assert!(
-            sans.iter().any(|s| s.contains("tunnel.example.com") && !s.contains('*')),
+            sans.iter()
+                .any(|s| s.contains("tunnel.example.com") && !s.contains('*')),
             "SANs: {sans:?}"
         );
         assert!(

@@ -248,7 +248,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             other => {
                 return Err(format!(
                     "unknown --acme-provider: {other} (manual | cloudflare | porkbun)"
-                ))
+                ));
             }
         }
     }

@@ -16,8 +16,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::routing::{get, head, post};
 use axum::{Json, Router};
 use base64::prelude::*;
-use parking_lot::Mutex;
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
+use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 mod common;
@@ -103,7 +103,10 @@ fn next_nonce(state: &MockState) -> String {
 
 fn nonce_headers(st: &MockState) -> HeaderMap {
     let mut m = HeaderMap::new();
-    m.insert("replay-nonce", HeaderValue::from_str(&next_nonce(st)).unwrap());
+    m.insert(
+        "replay-nonce",
+        HeaderValue::from_str(&next_nonce(st)).unwrap(),
+    );
     m
 }
 
@@ -148,8 +151,15 @@ async fn new_account_h(
     assert_eq!(payload["termsOfServiceAgreed"], true);
     st.account = true;
     let mut m = nonce_headers(&st);
-    m.insert(axum::http::header::LOCATION, HeaderValue::from_str(&format!("{}/acct/1", ctx.base)).unwrap());
-    (StatusCode::CREATED, m, Json(serde_json::json!({"status": "valid"})))
+    m.insert(
+        axum::http::header::LOCATION,
+        HeaderValue::from_str(&format!("{}/acct/1", ctx.base)).unwrap(),
+    );
+    (
+        StatusCode::CREATED,
+        m,
+        Json(serde_json::json!({"status": "valid"})),
+    )
 }
 
 async fn new_order_h(
@@ -175,7 +185,10 @@ async fn new_order_h(
     st.triggered = vec![false, false];
     st.finalized = false;
     let mut m = nonce_headers(&st);
-    m.insert(axum::http::header::LOCATION, HeaderValue::from_str(&format!("{}/order/1", ctx.base)).unwrap());
+    m.insert(
+        axum::http::header::LOCATION,
+        HeaderValue::from_str(&format!("{}/order/1", ctx.base)).unwrap(),
+    );
     (
         StatusCode::CREATED,
         m,
@@ -411,10 +424,7 @@ async fn dns01_engine_issues_wildcard_cert_through_mock_directory() {
     let cfg = DnsIssuerConfig {
         directory_url: format!("http://{addr}/directory"),
         contact_email: Some("ops@example.test".into()),
-        domains: vec![
-            "tunnel.example.test".into(),
-            "*.tunnel.example.test".into(),
-        ],
+        domains: vec!["tunnel.example.test".into(), "*.tunnel.example.test".into()],
         cache_dir: cache.clone(),
         provider: Arc::new(provider),
         http: reqwest::Client::new(),
@@ -452,8 +462,16 @@ async fn dns01_engine_issues_wildcard_cert_through_mock_directory() {
 
     // Second pass serves the cache: no new order, no TXT traffic.
     controller.run_once().await.expect("cached pass");
-    assert_eq!(ctx.state.lock().new_order_calls, 1, "cache must skip re-issuance");
-    assert_eq!(rec.writes.lock().len(), 2, "no new TXT writes on cached pass");
+    assert_eq!(
+        ctx.state.lock().new_order_calls,
+        1,
+        "cache must skip re-issuance"
+    );
+    assert_eq!(
+        rec.writes.lock().len(),
+        2,
+        "no new TXT writes on cached pass"
+    );
 
     std::fs::remove_dir_all(&cache).ok();
 }

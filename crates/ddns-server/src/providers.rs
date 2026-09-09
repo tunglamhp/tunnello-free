@@ -27,7 +27,9 @@ pub struct ChallengeStore {
 
 impl ChallengeStore {
     pub fn write(&self, domain: &str, value: &str) {
-        self.pending.lock().insert(domain.to_string(), value.to_string());
+        self.pending
+            .lock()
+            .insert(domain.to_string(), value.to_string());
     }
     pub fn clear(&self, domain: &str) {
         self.pending.lock().remove(domain);
@@ -91,7 +93,10 @@ impl Dns01Provider for ManualTxt {
         let domain = domain.to_string();
         Box::pin(async move {
             self.store.clear(&domain);
-            tracing::info!(domain, "DNS-01 challenge cleared for _acme-challenge.{domain}");
+            tracing::info!(
+                domain,
+                "DNS-01 challenge cleared for _acme-challenge.{domain}"
+            );
             Ok(())
         })
     }
@@ -382,10 +387,7 @@ impl Porkbun {
     }
 
     async fn delete_txt(&self, record_id: &str) -> Result<(), String> {
-        let url = format!(
-            "{}/dns/delete/{}/{}",
-            self.base_url, self.zone, record_id
-        );
+        let url = format!("{}/dns/delete/{}/{}", self.base_url, self.zone, record_id);
         let body = serde_json::json!({
             "secretapikey": self.secret,
             "apikey": self.api_key,
