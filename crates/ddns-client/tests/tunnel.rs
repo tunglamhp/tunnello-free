@@ -309,7 +309,10 @@ async fn stalled_tcp_peer_does_not_wedge_session() {
             tls.read(&mut buf).await
         }
     });
-    let v1_res = tokio::time::timeout(Duration::from_secs(15), v1)
+    // The stall-close path fires ~5 s after the local write blocks (mux
+    // write timeout). CI runners under load have seen it exceed 15 s, so the
+    // bound is generous: a real wedge (never closes) still fails the test.
+    let v1_res = tokio::time::timeout(Duration::from_secs(60), v1)
         .await
         .expect("stalled stream must be closed by the client, not hang the session");
     assert!(
@@ -322,7 +325,7 @@ async fn stalled_tcp_peer_does_not_wedge_session() {
     let mut tls2 = tls_tcp_connect(addr, &cert, &sni).await;
     tls2.write_all(b"ping").await.unwrap();
     let mut buf = [0u8; 4];
-    let n = tokio::time::timeout(Duration::from_secs(10), tls2.read(&mut buf))
+    let n = tokio::time::timeout(Duration::from_secs(30), tls2.read(&mut buf))
         .await
         .expect("second stream must be served after the stall")
         .unwrap();
