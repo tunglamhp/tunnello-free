@@ -77,6 +77,7 @@ async fn start_broker_on_addr(
         base_url: "https://tunnel.example.com".to_string(),
         web_dist: std::path::PathBuf::from("dist/public"),
         acme: None,
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         redis_url: None,
         max_streams_per_session: 512,
     };
@@ -277,6 +278,7 @@ async fn reconnect_after_blackhole_re_registers() {
         http_listen: None,
         stun_listen: None,
         acme: None,
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         download_dir: None,
         dev: true,
         base_url: "https://tunnel.example.com".to_string(),

@@ -435,43 +435,42 @@ async fn dns01_engine_issues_wildcard_cert_through_mock_directory() {
     let controller = DnsAcmeController::new(cfg, slot.clone());
     controller.run_once().await.expect("issuance succeeded");
 
-    // Two TXT digests written on the same base, distinct values; both cleared.
-    let writes = rec.writes.lock();
-    assert_eq!(writes.len(), 2, "apex + wildcard authorizations");
-    assert_eq!(writes[0].0, "tunnel.example.test");
-    assert_eq!(writes[1].0, "tunnel.example.test");
-    assert_ne!(writes[0].1, writes[1].1, "distinct digest per authz");
-    for (_, v) in writes.iter() {
-        assert_eq!(v.len(), 43, "base64url sha256 digest");
-    }
-    drop(writes);
-    let clears = rec.clears.lock();
-    assert_eq!(clears.len(), 2);
-    assert!(clears.iter().all(|c| c == "tunnel.example.test"));
-    drop(clears);
-
-    // The CSR submitted at finalize carried both identifiers.
-    let csr_der = ctx.state.lock().captured_csr.clone().expect("CSR captured");
-    assert!(!csr_der.is_empty());
+    // Two TXT digests written on the same base, distinct values.
+    let (write_pairs, cleared, calls_before, csr_seen) = {
+        let writes = rec.writes.lock();
+        assert_eq!(writes.len(), 2, "apex + wildcard authorizations");
+        assert_eq!(writes[0].0, "tunnel.example.test");
+        assert_eq!(writes[1].0, "tunnel.example.test");
+        assert_ne!(writes[0].1, writes[1].1, "distinct digest per authz");
+        for (_, v) in writes.iter() {
+            assert_eq!(v.len(), 43, "base64url sha256 digest");
+        }
+        let pairs = writes.clone();
+        let cleared = rec.clears.lock().clone();
+        let calls_before = ctx.state.lock().new_order_calls;
+        let csr_seen = ctx.state.lock().captured_csr.is_some();
+        (pairs, cleared, calls_before, csr_seen)
+    };
+    assert_eq!(write_pairs.len(), 2);
+    assert_eq!(cleared.len(), 2);
+    assert!(cleared.iter().all(|c| c == "tunnel.example.test"));
+    assert_eq!(calls_before, 1);
+    assert!(csr_seen, "finalize carried a CSR");
 
     // Cache persisted for restart reuse.
     assert!(cache.join("dns01-cert.pem").exists());
     assert!(cache.join("dns01-key.pem").exists());
     assert!(cache.join("dns01-account-key.der").exists());
-    assert_eq!(ctx.state.lock().new_order_calls, 1);
 
     // Second pass serves the cache: no new order, no TXT traffic.
     controller.run_once().await.expect("cached pass");
-    assert_eq!(
-        ctx.state.lock().new_order_calls,
-        1,
-        "cache must skip re-issuance"
-    );
-    assert_eq!(
-        rec.writes.lock().len(),
-        2,
-        "no new TXT writes on cached pass"
-    );
+    let (calls_after, writes_after) = {
+        let calls_after = ctx.state.lock().new_order_calls;
+        let writes_after = rec.writes.lock().len();
+        (calls_after, writes_after)
+    };
+    assert_eq!(calls_after, 1, "cache must skip re-issuance");
+    assert_eq!(writes_after, 2, "no new TXT writes on cached pass");
 
     std::fs::remove_dir_all(&cache).ok();
 }

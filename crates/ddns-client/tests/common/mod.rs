@@ -68,6 +68,7 @@ pub async fn start_broker_with_store(
         base_url: "https://tunnel.example.com".to_string(),
         web_dist: std::path::PathBuf::from("dist/public"),
         acme: None,
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         redis_url: None,
         max_streams_per_session: 512,
     };

@@ -108,6 +108,7 @@ async fn challenge_endpoint_serves_value() {
             // exercised here.
             directory_url: Some("http://127.0.0.1:1/directory".to_string()),
         }),
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         download_dir: None,
         dev: false,
         base_url: "https://tunnel.example.com".to_string(),
@@ -286,6 +287,7 @@ async fn acme_acceptor_constructs_and_does_not_panic() {
             provider: AcmeProvider::Manual,
             directory_url: Some("http://127.0.0.1:1/directory".into()),
         }),
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         download_dir: None,
         dev: false,
         base_url: "https://tunnel.example.com".to_string(),
@@ -336,6 +338,7 @@ async fn acme_and_explicit_certs_are_mutually_exclusive() {
             provider: AcmeProvider::Manual,
             directory_url: None,
         }),
+        acme_cache_dir: std::env::temp_dir().join("ddns-test-acme-cache"),
         download_dir: None,
         dev: false,
         base_url: "https://tunnel.example.com".to_string(),
