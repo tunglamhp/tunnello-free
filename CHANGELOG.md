@@ -9,7 +9,7 @@
 ## [0.11.0] — 2026-09-09
 
 ### Added
-- **ACME DNS-01 (Let's Encrypt wildcard)**: Cloudflare/Porkbun providers write the `_acme-challenge` TXT records themselves; one certificate covers the apex AND `*.domain` — dashboard and every tunnel hostname get valid HTTPS, auto-renewed and hot-swapped.
+- **ACME DNS-01 (Let's Encrypt wildcard)**: Cloudflare/Porkbun providers write the `_acme-challenge` TXT records themselves; one certificate covers the apex AND `*.domain` — the dashboard and every tunnel hostname get valid HTTPS, auto-renewed and hot-swapped.
 - **`deploy.sh` preflight**: DNS checks (apex + wildcard) and automatic firewall rules for HTTPS/WSS, STUN (3478/udp) and WireGuard when enabled; disable with `DDNS_SKIP_FIREWALL=1` / `DDNS_SKIP_DNS_CHECK=1`.
 
 ### Changed
@@ -18,18 +18,18 @@
 ## [Unreleased]
 
 ### Planned
-- Keep free/public surface aligned with private broker core minus billing/plans UI.
+- Keep the free/public surface aligned with the private broker core minus billing/plans UI.
 
 ## [0.10.3] — 2026-08-29
 
-### Sửa
-- Hoàn tất hardening **no-panic** (M7): `SessionCookie::issue`/`tag` trả `Result` thay vì `.expect` panic, caller map sang 500.
-- Backport **key-age**: `key_age_or_panic` → `Option`, lazy sweep, pubkey validation.
-- Khôi phục test compat (secret dạng `Vec`, `generate_keypair` trả `Result`, cookie unwrap gated).
-- Clippy sạch (collapsed `if-let`, `result_unit_err` allows).
+### Fixed
+- Completed **no-panic** hardening (M7): `SessionCookie::issue`/`tag` return `Result` instead of `.expect` panics; callers map to 500.
+- Backported **key-age**: `key_age_or_panic` → `Option`, lazy sweep, pubkey validation.
+- Restored test compatibility (secrets as `Vec`, `generate_keypair` returns `Result`, gated cookie unwraps).
+- Clippy clean (collapsed `if-let`, `result_unit_err` allows).
 
 ---
 
-## [0.10.2] — trước đó
+## [0.10.2] — earlier
 
 Exit-node WireGuard full tunnel (`ddns up --exit-node`), wg platform layer (fwmark kill switch, route planners), key-age first-sighting semantics.

@@ -16,26 +16,25 @@
 visitor ──https──▶ Tunello broker ◀──wss── ddns-client ──http/tcp──▶ your local app
 ```
 
-## 1. Cài broker lên VPS (Ubuntu, 1 lệnh)
+## 1. Install the broker on a VPS (Ubuntu, 1 command)
 
-SSH vào VPS, chạy:
+SSH into the VPS and run:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/tunglamhp/tunnello-free/main/install-server.sh | bash
 ```
 
-Script tự cài Docker (nếu thiếu), clone repo, chạy `deploy.sh`, in ra URL + bước `/setup` đầu tiên. Mở URL đó trên trình duyệt → tạo tài khoản operator.
+The script installs Docker when missing, clones the repo, runs `deploy.sh`, and prints the URL plus the first `/setup` steps. Open that URL in your browser → create the operator account.
 
-Nâng cấp sau này: `cd /opt/tunnello/deploy && bash deploy.sh --update`.
+Later upgrades: `cd /opt/tunnello/deploy && bash deploy.sh --update`.
 
+### What's new in this release (see CHANGELOG)
+- **ACME DNS-01** — set `DDNS_ACME_PROVIDER=cloudflare|porkbun` (with credentials in `deploy/.env`): the broker writes the `_acme-challenge` TXT itself and issues one Let's Encrypt certificate for the apex + `*.domain` — every tunnel hostname gets HTTPS, auto-renewed, no open ports needed.
+- **`deploy.sh` preflight** — DNS checks (apex + wildcard) and automatic firewall rules (ufw/firewalld); disable with `DDNS_SKIP_DNS_CHECK=1` / `DDNS_SKIP_FIREWALL=1`.
 
-Phần mới nhất (xem CHANGELOG):
-- **ACME DNS-01** — đặt `DDNS_ACME_PROVIDER=cloudflare|porkbun` (kèm credentials trong `deploy/.env`): broker tự ghi TXT `_acme-challenge` và cấp một chứng chỉ Let's Encrypt cho apex + `*.domain` — mọi tunnel hostname đều có HTTPS, tự gia hạn, không cần mở cổng.
-- **`deploy.sh` preflight** — tự kiểm tra DNS (apex + wildcard) và mở firewall (ufw/firewalld); tắt bằng `DDNS_SKIP_DNS_CHECK=1` / `DDNS_SKIP_FIREWALL=1`.
+## 2. Install the client on the machine you want to expose
 
-## 2. Cài client trên máy muốn expose
-
-Vào dashboard → **Tokens** → tạo token → **Quickstart** → copy đúng lệnh cho máy của bạn:
+Dashboard → **Tokens** → create a token → **Quickstart** → copy the command for your machine:
 
 - **Linux / macOS**:
   ```bash
@@ -46,44 +45,38 @@ Vào dashboard → **Tokens** → tạo token → **Quickstart** → copy đúng
   irm "https://<broker>/install.ps1?code=sc_xxx&port=8080" | iex
   ```
 
-Lệnh này tự tải binary `ddns`, cài vào PATH, mở tunnel trỏ về service cục bộ (`localhost:8080`). Tunnel URL hiện ngay cuối output.
-
-Khách hàng cũng có thể tự đăng ký tại `https://<broker>/portal` rồi vào portal lấy lệnh Quickstart cho mình.
-
-## 3. Xong
-
-Truy cập tunnel URL trên trình duyệt — thấy app cục bộ của bạn, ai cũng truy cập được qua HTTPS.
+The command downloads the static `ddns` binary, installs it to PATH, and opens a tunnel to your local service (`localhost:8080`). The tunnel URL is printed at the end of the output.
 
 ---
 
 ## Free edition boundary
 
-Các tính năng thuộc miễn phí/public:
+Features that remain free/public:
 - `ddns-proto`, `ddns-client`, `ddns-server` core tunneling, `/connect`, `/install.sh`, `/download/{file}`
 
-Các tính năng chỉ giữ private:
+Features that stay private:
 - `ddns-billing`, payments, plans/subscriptions UI, token packs, portal payments
 
 ---
 
-## Cập nhật
+## Updating
 
 ```bash
 # Server
 cd /opt/tunnello/deploy && bash deploy.sh --update
 
 # Client
-ddns update           # tự tải binary mới từ GitHub Releases
+ddns update           # pulls the latest binary from GitHub Releases
 ```
 
-## Cấu hình nâng cao & khắc phục sự cố
+## Advanced configuration & troubleshooting
 
-Xem **[MANUAL.md](MANUAL.md)** — cổng STUN, biến môi trường, dashboard pages, dev mode, build từ source, kiến trúc, gỡ lỗi.
+See **[MANUAL.md](MANUAL.md)** — STUN port, environment variables, dashboard pages, dev mode, building from source, architecture, debugging.
 
-## Thay đổi theo phiên bản
+## Release notes
 
-Xem **[CHANGELOG.md](CHANGELOG.md)** — các bản phát hành và thay đổi gần nhất.
+See **[CHANGELOG.md](CHANGELOG.md)** and the [GitHub Releases](https://github.com/tunglamhp/tunnello-free/releases) page.
 
-## Giấy phép
+## License
 
 [MIT](LICENSE)
