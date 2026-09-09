@@ -1,202 +1,206 @@
-# Hướng dẫn cài đặt & quản lý DDNS Broker trên VPS (Ubuntu 24.04 / 26.04)
+# Tunello Broker — VPS install & management guide (Ubuntu 24.04 / 26.04)
 
-> Dành cho **chủ hệ thống / operator**. Khách hàng dùng file `GUIDE-KHACH-HANG.md`.
-> DDNS Broker = nền tảng tunnel tự lưu trữ: khách hàng chạy client `ddns` tại chỗ,
-> truy cập dịch vụ local của họ qua tên miền cố định `https://<slug>.<domain-cua-ban>`.
+> For the **system owner / operator**. Customers use `GUIDE-KHACH-HANG.md`.
+> The broker is the self-hosted tunnel platform: customers run the `ddns`
+> client on their machine and reach their local services at a fixed
+> hostname `https://<slug>.<your-domain>`.
 
 ---
 
-## 1. Chuẩn bị (bắt buộc)
+## 1. Prerequisites (required)
 
-| Thứ | Yêu cầu |
+| Item | Requirement |
 |---|---|
-| VPS | Ubuntu 24.04 hoặc 26.04, tối thiểu 1 vCPU / 1 GB RAM (nên 2 GB), public IP |
-| Domain | Bạn kiểm soát DNS, ví dụ `tunnel.example.com` |
-| DNS | Bản ghi `A` (hoặc AAAA) trỏ **cả 2** về IP VPS: |
-| | `tunnel.example.com` → IP VPS (dashboard, chứng chỉ ACME) |
-| | `*.tunnel.example.com` → IP VPS (mọi tunnel của khách) |
-| Firewall | Mở cổng **443/tcp** mặc định (HTTPS + WSS — URL sạch không hiện port) và **3478/udp** (STUN P2P). Chỉ mở **8443/tcp** khi bạn đặt `DDNS_PUBLIC_PORT=8443` (443 bận); **51821/udp** khi bật WireGuard; **80** nếu bật HTTP-01/redirect |
-| Swap | VPS 1 GB RAM nên thêm swap 1–2 GB trước khi build (build Rust tốn RAM) |
+| VPS | Ubuntu 24.04 or 26.04, at least 1 vCPU / 1 GB RAM (2 GB recommended), public IP |
+| Domain | You control the DNS, e.g. `tunnel.example.com` |
+| DNS | `A` (or AAAA) records pointing **both** of these at the VPS IP: |
+| | `tunnel.example.com` → VPS IP (dashboard, ACME certificates) |
+| | `*.tunnel.example.com` → VPS IP (every customer tunnel) |
+| Firewall | Open **443/tcp** by default (HTTPS + WSS — clean URLs without a port) and **3478/udp** (STUN P2P). Only open **8443/tcp** when you set `DDNS_PUBLIC_PORT=8443` (443 is taken); **51821/udp** when WireGuard is enabled; **80** when HTTP-01/redirect is enabled |
+| Swap | On a 1 GB RAM VPS add 1–2 GB swap before building (Rust builds need RAM) |
 
-Cài DNS **trước**, để bản ghi lan truyền (vài phút → vài giờ tùy DNS).
+Set up DNS **first** and let the records propagate (minutes → hours depending on the DNS).
 
 ---
 
-## 2. Cài đặt một cú nhấp chuột (one-click)
+## 2. One-click install
 
-Cả thư mục `deploy/` này là một gói tự chứa. Đưa nó lên VPS (dùng `scp`, `rsync`, hoặc clone repo), rồi chạy **một lệnh duy nhất**:
+The whole `deploy/` folder is a self-contained package. Move it to the VPS
+(`scp`, `rsync`, or a repo clone), then run **a single command**:
 
 ```bash
-# tùy chọn A — gửi thư mục deploy/ lên VPS từ máy bạn:
-scp -r deploy/ root@IP-VPS:/opt/ddns-deploy/
+# option A — copy the deploy/ folder to the VPS from your machine:
+scp -r deploy/ root@VPS-IP:/opt/ddns-deploy/
 
-# tùy chọn B — clone repo rồi vào deploy/:
-git clone <URL-repo-cua-ban> /opt/ddns && cd /opt/ddns/deploy
+# option B — clone the repo and enter deploy/:
+git clone <your-repo-url> /opt/ddns && cd /opt/ddns/deploy
 ```
 
-Trên VPS:
+On the VPS:
 
 ```bash
 cd /opt/ddns-deploy
 ./deploy.sh
 ```
 
-Script sẽ tự động (khi chạy bằng `root`):
+When run as `root`, the script automatically:
 
-1. **Tự cài container engine + Compose plugin** nếu chưa có (qua `get.docker.com`; tắt bằng `DDNS_INSTALL_DOCKER=0`).
-2. Hỏi **domain** và **nguồn chứng chỉ** (1 = PEM tĩnh, 2 = ACME (chứng chỉ tự động), 3 = dev — không dùng ở production).
-3. Ghi `deploy/.env` (chmod 600, chứa bí mật — **không commit**).
-4. Clone mã nguồn (nếu chưa có checkout), build image, khởi động stack `broker` + `redis`.
-5. In ra các bước lần chạy đầu.
+1. **Installs the container engine + Compose plugin** when missing (via `get.docker.com`; disable with `DDNS_INSTALL_DOCKER=0`).
+2. Asks for the **domain** and the **certificate source** (1 = static PEM, 2 = ACME (automatic), 3 = dev — never in production).
+3. Writes `deploy/.env` (chmod 600, holds secrets — **never commit it**).
+4. Clones the source (when there is no checkout), builds the image, and starts the `broker` + `redis` stack.
+5. Prints the first-run steps.
 
-> Chạy **không tương tác** (cho CI/script): cung cấp trước env, ví dụ
+> **Non-interactive** (for CI/scripts): provide the env vars up front, e.g.
 > `DDNS_DOMAIN=tunnel.example.com DDNS_ACME_EMAIL=admin@example.com ./deploy.sh`
-> (hoặc đặt `DDNS_CERT=/certs/fullchain.pem DDNS_KEY=/certs/privkey.pem` + đặt file PEM vào `deploy/certs/`).
+> (or set `DDNS_CERT=/certs/fullchain.pem DDNS_KEY=/certs/privkey.pem` and place the PEM files in `deploy/certs/`).
 
-### 2.1. Nguồn chứng chỉ — chọn đúng 1
+### 2.1. Certificate source — pick exactly one
 
-1. **PEM tĩnh (khuyên dùng)** — đặt `fullchain.pem` + `privkey.pem` vào `deploy/certs/` (mount read-only). Gia hạn ngoài (certbot, CA của bạn) rồi `docker compose restart broker`.
-2. **ACME (chứng chỉ tự động)** — set `DDNS_ACME_EMAIL`. Hai cách xác thực:
-   - **TLS-ALPN-01** (mặc định, provider `manual`): broker tự cấp + gia hạn cho **apex**; cổng 443 phải mở.
-   - **DNS-01** (`DDNS_ACME_PROVIDER=cloudflare|porkbun` kèm credentials trong `.env`): broker tự ghi bản ghi TXT `_acme-challenge` và cấp **MỘT** chứng chỉ cho apex + `*.domain` — dashboard và mọi tunnel hostname đều có HTTPS hợp lệ, tự gia hạn + hoán đổi không cần restart, không cần mở cổng validation.
+1. **Static PEM (recommended)** — place `fullchain.pem` + `privkey.pem` in `deploy/certs/` (read-only mount). Renew externally (certbot, your CA) then `docker compose restart broker`.
+2. **ACME (automatic certificates)** — set `DDNS_ACME_EMAIL`. Two validation methods:
+   - **TLS-ALPN-01** (default, provider `manual`): the broker issues and renews for the **apex**; port 443 must be open.
+   - **DNS-01** (`DDNS_ACME_PROVIDER=cloudflare|porkbun` with credentials in `.env`): the broker writes the `_acme-challenge` TXT records itself and obtains **ONE** certificate for the apex + `*.domain` — the dashboard and every tunnel hostname get valid HTTPS, auto-renewed and hot-swapped without a restart, and no inbound validation port is needed.
 
-> ACME account/certificate cache được lưu trong `/data/acme_cache` trên volume
-> `broker-data`, nên vẫn tồn tại sau khi container restart/rebuild. Hãy backup
-> volume này cùng với SQLite DB.
-3. `DDNS_DEV=1` — cert tự ký, **chỉ test**.
+> The ACME account/certificate cache lives in `/data/acme_cache` on the
+> `broker-data` volume, so it survives container restarts/rebuilds. Back this
+> volume up together with the SQLite DB.
+3. `DDNS_DEV=1` — self-signed cert, **test only**.
 
-### 2.2. Lần chạy đầu — bảo mật ngay
+### 2.2. First run — secure it immediately
 
 ```bash
-# mở dashboard:
-#   https://tunnel.example.com/setup   → đặt mật khẩu admin (8–128 ký tự, argon2)
-#   sau đó: https://tunnel.example.com/ → đăng nhập
+# open the dashboard:
+#   https://tunnel.example.com/setup   → set the admin password (8–128 chars, argon2)
+#   afterwards: https://tunnel.example.com/ → log in
 ```
 
-Vào **Settings** (`/settings`) và làm:
+In **Settings** (`/settings`):
 
-- **Security** → bật **TOTP 2FA**; đặt **session TTL**; thêm IP của bạn vào **dashboard IP allowlist** (CIDR; trống = cho tất cả — hãy đặt).
-- **Alerts** → webhook URL + secret (sự kiện ký HMAC `X-DDNS-Signature`) và/hoặc email alert.
-- **Defaults** → giới hạn token mặc định cho token mới.
+- **Security** → enable **TOTP 2FA**; set a **session TTL**; add your IPs to the **dashboard IP allowlist** (CIDR; empty = allow everyone — fill it in).
+- **Alerts** → webhook URL + secret (events signed with `X-DDNS-Signature`) and/or email alerts.
+- **Defaults** → default token limits applied to new tokens.
 
 ---
 
-## 2.3. Chạy tại nhà với IP động (bridge mode, không VPS)
+## 2.3. Run at home with a dynamic IP (bridge mode, no VPS)
 
-Khả thi khi modem chuyển **bridge mode** để router nhà nhận **public IPv4 động**
-(không CGNAT — kiểm tra: `curl -4 -s https://api.ipify.org` không được thuộc
-`100.64.0.0/10` hay `10.0.0.0/8`). Toàn bộ thiết kế giữ nguyên (P2P, STUN 3478).
+Works when your modem is in **bridge mode** so the home router receives a real
+**dynamic public IPv4** (no CGNAT — check with `curl -4 -s https://api.ipify.org`,
+the IP must not be in `100.64.0.0/10` or `10.0.0.0/8`). The whole design stays
+the same (P2P, STUN 3478).
 
-1. **Modem bridge mode** → router nhà tự PPPoE (lấy user/pass từ ISP) → WAN là IP công khai động.
-2. **Port forwarding trên router**: `443/tcp` + `3478/udp` → máy chạy broker.
-   Kiểm tra ISP có chặn inbound 80/443 không (nếu chặn: đổi `DDNS_PUBLIC_PORT` — URL sẽ hiện port).
-3. **DDNS bằng API Porkbun** — `deploy/ddns-porkbun.sh` (đi kèm repo):
+1. **Modem bridge mode** → the home router dials PPPoE itself (use the ISP user/pass) → the WAN is a dynamic public IP.
+2. **Port forwarding on the router**: `443/tcp` + `3478/udp` → the broker machine.
+   Check whether the ISP blocks inbound 80/443 (if blocked: change `DDNS_PUBLIC_PORT` — URLs will then show the port).
+3. **DDNS via the Porkbun API** — `deploy/ddns-porkbun.sh` (ships with the repo):
    ```bash
    cp deploy/ddns-porkbun.sh /opt/ddns-deploy/
    cp deploy/systemd/ddns-porkbun.{service,timer} /etc/systemd/system/
-   # thêm vào deploy/.env (hoặc environment):
+   # add to deploy/.env (or the unit environment):
    #   DDNS_PORKBUN_API_KEY=...   DDNS_PORKBUN_SECRET=...   (porkbun.com/account/api)
    #   DDNS_PORKBUN_HOSTS="tunnel.example.com *.tunnel.example.com"
    systemctl daemon-reload && systemctl enable --now ddns-porkbun.timer
    ```
-   Timer chạy mỗi 5 phút: IP đổi → cập nhật A record apex + wildcard (TTL 300).
-   Kiểm tra thủ công: `/opt/ddns-deploy/ddns-porkbun.sh --dry-run`.
-4. **Wildcard TLS** — nếu broker dùng ACME DNS-01 (Cloudflare/Porkbun) thì đã có sẵn chứng chỉ phủ `*.domain`. Khi cần wildcard với DNS provider khác, cấp ngoài bằng **certbot + plugin dns-porkbun** (dùng chung API key):
+   The timer runs every 5 minutes: when the IP changes it updates the apex +
+   wildcard A records (TTL 300). Manual check: `/opt/ddns-deploy/ddns-porkbun.sh --dry-run`.
+4. **Wildcard TLS** — when the broker uses ACME DNS-01 (Cloudflare/Porkbun) the `*.domain` certificate is already covered. If you need a wildcard with a different DNS provider, issue it externally with **certbot + the dns-porkbun plugin** (shares the API key):
    ```bash
    sudo apt install certbot python3-certbot-dns-porkbun
    sudo certbot certonly --dns-porkbun --dns-porkbun-credentials /etc/porkbun.ini \
      -d tunnel.example.com -d '*.tunnel.example.com'
-   # copy fullchain.pem + privkey.pem vào deploy/certs/ (đặt DDNS_CERT/DDNS_KEY)
-   # gia hạn: certbot renew + docker compose restart broker (xem README §Certificates)
+   # copy fullchain.pem + privkey.pem into deploy/certs/ (set DDNS_CERT/DDNS_KEY)
+   # renew: certbot renew + docker compose restart broker (see README §Certificates)
    ```
-5. **Khi IP đổi**: DNS cập nhật ≤ ~5 phút → client tự reconnect (backoff 1–30s);
-   phiên WebRTC P2P đang sống bị đứt → visitor reload là nối lại (rơi relay rồi P2P lại).
+5. **When the IP changes**: DNS updates within ≤ ~5 minutes → clients reconnect on
+   their own (1–30 s backoff); live WebRTC P2P sessions drop → a visitor reload
+   reconnects (falls back to relay, then P2P again).
 
-> Lưu ý: mất điện/mạng nhà = dịch vụ chết tạm; không có SLA như VPS.
-> Nếu ISP không cho bridge/IP công khai → dùng Oracle Cloud Always Free
-> (4 OCPU/24 GB, $0) hoặc Cloudflare Tunnel (relay-only, mất P2P).
+> Note: a power/network outage at home stops the service temporarily — no SLA
+> like a VPS. If the ISP does not allow bridge mode / a public IP, use Oracle
+> Cloud Always Free (4 OCPU/24 GB, $0) or Cloudflare Tunnel (relay-only, loses P2P).
 
-## 2.4. Failover: home chính + VPS backup (chạy song hành)
+## 2.4. Failover: home primary + VPS backup (run in parallel)
 
-Khi home server tắt/mất mạng, **VPS backup tự tiếp quản** trong ~5–10 phút
-(phát hiện 3 lần fail × 60s + DNS TTL 300s). Cả hai broker cài song song;
-DNS Porkbun là công tắc.
+When the home server goes down or loses network, the **backup VPS takes over
+within ~5–10 minutes** (3 failed checks × 60 s + DNS TTL 300 s). Both brokers
+run side by side; Porkbun DNS is the switch.
 
-**Vai trò:**
-- **Home (primary):** broker chạy bình thường; mỗi 5 phút đẩy snapshot SQLite
-  (`.backup` qua sqlite3 trong container alpine) + certs sang VPS.
-- **VPS (backup):** monitor health-check `https://<home-ip>/install.sh` trực
-  tiếp (qua `--resolve`, không qua DNS). Home chết ≥ 3 lần liên tiếp →
-  restore snapshot mới nhất → `docker compose up -d` → trỏ DNS (apex +
-  wildcard) về IP VPS. Home hồi → trỏ DNS về home → tắt stack VPS.
+**Roles:**
+- **Home (primary):** the broker runs normally; every 5 minutes it pushes a SQLite snapshot
+  (`.backup` via sqlite3 in the alpine container) + certs to the VPS.
+- **VPS (backup):** a monitor health-checks `https://<home-ip>/install.sh` directly
+  (via `--resolve`, not DNS). When home fails ≥ 3 times in a row → restore the latest
+  snapshot → `docker compose up -d` → point DNS (apex + wildcard) at the VPS IP.
+  When home recovers → point DNS back home → stop the VPS stack.
 
-**Cài home (`deploy/failover/home-push-backup.sh`):**
+**Install home (`deploy/failover/home-push-backup.sh`):**
 ```bash
 cp deploy/failover/home-push-backup.sh /opt/ddns-deploy/
 cp deploy/failover/systemd/home-push-backup.{service,timer} /etc/systemd/system/
-# deploy/.env: DDNS_VPS_SSH=root@<vps-ip>  DDNS_VOLUME=<tên volume thật>
-ssh-copy-id root@<vps-ip>          # 1 lần: key home -> VPS
+# deploy/.env: DDNS_VPS_SSH=root@<vps-ip>  DDNS_VOLUME=<real volume name>
+ssh-copy-id root@<vps-ip>          # once: home key -> VPS
 systemctl daemon-reload && systemctl enable --now home-push-backup.timer
 ```
 
-**Cài VPS (`deploy/failover/vps-monitor.sh`):**
+**Install VPS (`deploy/failover/vps-monitor.sh`):**
 ```bash
-# deploy/.env trên VPS: DDNS_HOME_IP, DDNS_VPS_IP, DDNS_DOMAIN,
-# DDNS_PORKBUN_API_KEY/SECRET + các biến failover
+# deploy/.env on the VPS: DDNS_HOME_IP, DDNS_VPS_IP, DDNS_DOMAIN,
+# DDNS_PORKBUN_API_KEY/SECRET + the failover variables
 cp deploy/failover/vps-monitor.sh /opt/ddns-deploy/
 cp deploy/failover/systemd/vps-monitor.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now vps-monitor
 ```
 
-**Kiểm tra:** `vps-monitor.sh --once` (1 lượt), `--force-to-vps` / `--force-to-home`
-(đảo tay); `ddns-porkbun.sh get` (xem DNS đang trỏ đâu).
+**Testing:** `vps-monitor.sh --once` (one pass), `--force-to-vps` / `--force-to-home`
+(manual flip); `ddns-porkbun.sh get` (see where DNS points).
 
-**Giới hạn (nói thẳng):** mất tối đa ~5 phút dữ liệu mới nhất (giữa 2 lần push);
-session đang sống bị đứt khi đảo → client tự reconnect (backoff) tới broker
-đang trỏ; token/plan/code dùng được từ snapshot cuối; phiên P2P cần visitor
-reload. VPS lúc thường **không chạy stack** (chỉ monitor) — bật khi failover,
-tắt khi home hồi.
+**Limits (be upfront):** up to ~5 minutes of the newest data can be lost (between
+two pushes); live sessions drop on a flip → clients reconnect (backoff) to the
+broker DNS now points at; tokens/plans/codes come from the last snapshot; P2P
+sessions need a visitor reload. The VPS normally does **not** run the stack
+(monitor only) — it starts on failover and stops when home recovers.
 
-## 3. Cấu hình tùy chọn (deploy/.env)
+## 3. Optional configuration (deploy/.env)
 
-| Biến | Ý nghĩa |
+| Variable | Meaning |
 |---|---|
-| `DDNS_DOMAIN` | Tên miền apex (bắt buộc) |
-| `DDNS_CERT` / `DDNS_KEY` | Đường dẫn PEM trong container (`/certs/...`) |
-| `DDNS_ACME_EMAIL` | Email ACME (nguồn cert #2) |
+| `DDNS_DOMAIN` | Apex domain (required) |
+| `DDNS_CERT` / `DDNS_KEY` | PEM paths inside the container (`/certs/...`) |
+| `DDNS_ACME_EMAIL` | ACME email (cert source #2) |
 | `DDNS_ACME_PROVIDER` | `manual` (TLS-ALPN-01, apex) / `cloudflare` / `porkbun` (DNS-01, apex + wildcard) |
 | `DDNS_ACME_CF_TOKEN` / `DDNS_ACME_CF_ZONE` | Cloudflare API token (zone-scoped, DNS edit) + zone id |
 | `DDNS_ACME_PORKBUN_KEY` / `DDNS_ACME_PORKBUN_SECRET` | Porkbun API key + secret |
-| `DDNS_SKIP_DNS_CHECK` / `DDNS_SKIP_FIREWALL` | Tắt preflight DNS / firewall của `deploy.sh` (=1) |
-| `DDNS_HTTP_LISTEN=0.0.0.0:80` | Bật listener HTTP (301→HTTPS + HTTP-01) |
-| `DDNS_MAX_SESSIONS` | Giới hạn session đồng thời (mặc định 256) |
-| `DDNS_BASE_URL` | URL ngoài dùng trong email (xác minh/reset) |
-| `DDNS_REDIS_URL` | Mặc định `redis://redis:6379` (rate limit + hot counter). Đặt **trống** (`DDNS_REDIS_URL=`) để chạy SQLite-only — **giữ nguyên service redis** (broker `depends_on` nó), chỉ bỏ URL. Bộ nhớ đệm chết → fail-open, không chặn traffic |
-| `DDNS_SMTP_*` | SMTP cho email xác minh/reset/cảnh báo (thiếu → chỉ log link ở dev) |
+| `DDNS_SKIP_DNS_CHECK` / `DDNS_SKIP_FIREWALL` | Disable the `deploy.sh` DNS/firewall preflight (=1) |
+| `DDNS_HTTP_LISTEN=0.0.0.0:80` | Enable the HTTP listener (301→HTTPS + HTTP-01) |
+| `DDNS_MAX_SESSIONS` | Concurrent session limit (default 256) |
+| `DDNS_BASE_URL` | External URL used in emails (verification/reset) |
+| `DDNS_REDIS_URL` | Default `redis://redis:6379` (rate limit + hot counter). Set it **empty** (`DDNS_REDIS_URL=`) for SQLite-only — **keep the redis service** (the broker `depends_on` it), only drop the URL. A dead cache fails open — traffic is never blocked |
+| `DDNS_SMTP_*` | SMTP for verification/reset/alert emails (missing → only dev-mode link logging) |
 
-Sửa xong chạy lại: `./deploy.sh --update`.
+After editing, re-run: `./deploy.sh --update`.
 
 ---
 
-## 4. Quản lý hàng ngày
+## 4. Day-to-day management
 
 ```bash
-cd /opt/ddns-deploy            # thư mục deploy/
+cd /opt/ddns-deploy            # the deploy/ folder
 
-./deploy.sh --update           # cập nhật: git pull + rebuild + restart
+./deploy.sh --update           # update: git pull + rebuild + restart
 
-docker compose ps              # trạng thái (broker phải "healthy", redis "healthy")
-docker compose logs -f broker  # log theo thời gian thực
-docker compose logs --tail 200 broker   # 200 dòng cuối
+docker compose ps              # status (broker must be "healthy", redis "healthy")
+docker compose logs -f broker  # real-time logs
+docker compose logs --tail 200 broker   # last 200 lines
 
-# khởi động lại broker (vd sau khi thay cert PEM):
+# restart the broker (e.g. after swapping a static PEM cert):
 docker compose restart broker
 ```
 
-### Backup & restore (QUAN TRỌNG — dữ liệu nằm trong volume `broker-data`)
+### Backup & restore (IMPORTANT — data lives in the `broker-data` volume)
 
 ```bash
-# backup (dừng ngắn để snapshot nhất quán):
+# backup (brief stop for a consistent snapshot):
 docker compose stop
 docker run --rm -v ddns_broker-data:/data -v $PWD:/backup \
   alpine tar czf /backup/ddns-data-$(date +%F).tar.gz -C /data .
@@ -209,94 +213,97 @@ docker run --rm -v ddns_broker-data:/data -v $PWD:/backup \
 docker compose start
 ```
 
-> Volume tên dạng `<project>_broker-data` (mặc định `ddns_broker-data` nếu chạy từ `deploy/`).
-> Kiểm tra tên chính xác bằng `docker volume ls`.
+> The volume is named `<project>_broker-data` (default `ddns_broker-data` when run
+> from `deploy/`). Verify the exact name with `docker volume ls`.
 
-### Giám sát
+### Monitoring
 
-- **Healthcheck**: `/install.sh` được poll 30s (compose healthcheck).
-- **Metrics**: `https://tunnel.example.com/metrics` (cần session operator; text exposition `ddns_*`). Scrape ví dụ:
+- **Healthcheck**: `/install.sh` is polled every 30 s (compose healthcheck).
+- **Metrics**: `https://tunnel.example.com/metrics` (operator session required; `ddns_*` text exposition). Example scrape:
 
 ```yaml
 scrape_configs:
   - job_name: ddns-broker
     metrics_path: /metrics
     scheme: https
-    bearer_token: <chuỗi-cookie-session-operator>   # hoặc dùng basic auth proxy
+    bearer_token: <operator-session-cookie-string>   # or front with a basic-auth proxy
     static_configs: [{ targets: ["tunnel.example.com"] }]
 ```
 
+
 ---
 
-## 5. Vận hành bán hàng (những gì khách thấy)
+## 5. Sales operations (what customers see)
 
-| Trang | Dùng cho |
+| Page | Purpose |
 |---|---|
-| `https://domain/portal/signup` | Khách đăng ký tài khoản |
-| `https://domain/portal/login` | Khách đăng nhập, tự quản lý |
-| Portal → API keys | Tạo API key (`ddns_...`, hiện 1 lần), truy cập `/api/v1/*` |
-| `/plans`, `/codes` (operator) | Sửa giới hạn gói; mã kích hoạt |
-| `/tokens`, `/tunnels`, `/domains` (operator) | Token, tunnel profile, kích hoạt apex + hướng dẫn DNS |
+| `https://domain/portal/signup` | Customer account registration |
+| `https://domain/portal/login` | Customer login + self-service |
+| Portal → API keys | Create API keys (`ddns_...`, shown once), access `/api/v1/*` |
+| `/tokens`, `/tunnels`, `/domains` (operator) | Tokens, tunnel profiles, activate the apex + DNS guidance |
+
 
 ---
 
-## 6. Ứng phó lạm dụng (abuse response)
+## 6. Abuse response
 
-Khi nhận **báo cáo lạm dụng** (phishing, malware, spam…), xử lý theo trình tự sau:
+When you receive an **abuse report** (phishing, malware, spam…), follow this order:
 
-1. **Nhận báo cáo** — ghi lại slug/URL/domain của tunnel bị tố cáo (vd `https://<slug>.tunnel.example.com`).
-2. **Xác định tài khoản** — dashboard hiển thị `Peer IP` của kết nối client trực tiếp trong session list. Dùng slug/token để xác định tài khoản trong SQLite (`/data/ddns.db`, volume `broker-data`):
+1. **Log the report** — record the reported tunnel slug/URL/domain (e.g. `https://<slug>.tunnel.example.com`).
+2. **Identify the account** — the dashboard shows the `Peer IP` of the direct client connection in the session list. Use the slug/token to find the account in SQLite (`/data/ddns.db`, `broker-data` volume):
 
    ```sql
-   SELECT account_id FROM tunnels WHERE subdomain = '<slug>';   -- từ slug báo cáo
-   SELECT owner_id   FROM tokens  WHERE id        = 't-xxxx';   -- từ token id (dạng t-xxxx)
+   SELECT account_id FROM tunnels WHERE subdomain = '<slug>';   -- from the reported slug
+   SELECT owner_id   FROM tokens  WHERE id        = 't-xxxx';   -- from the token id (t-xxxx)
    ```
 
-   Chạy tạm trong container (image broker không cài `sqlite3`): `docker run --rm -v ddns_broker-data:/data alpine sh -c 'apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 /data/ddns.db'` — thay `ddns_broker-data` bằng tên volume thật (`docker volume ls`).
-3. **Ngăn chặn ngay** (đúng thứ tự — kill trước, vì Suspend không tự ngắt session đang chạy):
-   - **Kill session** — nút kill trên dashboard (ngắt ngay kết nối đang chạy).
-   - **Suspend** — vào `/clients/{id}` → **Suspend** (hạ gói về Free/trial-hết hạn, chặn đăng ký tiếp; **không** tự đóng session đang chạy — đã xử lý ở bước kill).
-   - **Vô hiệu hóa token** — vào `/tokens`, disable token vi phạm.
-   - **Xóa tunnel profile** — nếu cần (chặn đăng ký lại slug đó).
-4. **Điều tra** — bằng chứng sẵn có: `Peer IP` trên session đang sống, `usage_daily` theo tài khoản (băng thông/request theo ngày) và lịch sử biến động token (`token_movements`). Peer IP là địa chỉ socket trực tiếp mà broker nhìn thấy; nếu đi qua reverse proxy, đó có thể là IP proxy và cần đối chiếu log proxy.
-5. **Kiểm soát chủ động đã có sẵn**:
-   - Rate limit theo gói (`rate_limit_rpm`) — **cần Redis**: chế độ SQLite-only (bỏ `DDNS_REDIS_URL`) không có enforcement rpm, cố ý fail-open (không chặn traffic).
-   - Hạn mức băng thông tháng (`bandwidth_monthly`).
-   - Cảnh báo mềm ở **80% / 95%** hạn mức.
-   - **Cắt cứng** khi hết token (từ chối đăng ký tunnel mới, đóng session đang chạy).
-   - Per-tunnel auth: basic auth, bearer key, IP whitelist (CIDR) — cấu hình trong tunnel editor.
-6. **Lưu ý pháp lý** — chỉ thu thập tối thiểu (usage theo tài khoản + biến động token); broker **không** ghi IP client hay nội dung traffic. Có quy trình **xác minh trước khi khóa tài khoản** để tránh khóa nhầm (vd khách bị mạo danh / token bị chiếm).
+   To run it in the container (the broker image has no `sqlite3`): `docker run --rm -v ddns_broker-data:/data alpine sh -c 'apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 /data/ddns.db'` — replace `ddns_broker-data` with the real volume name (`docker volume ls`).
+3. **Stop it immediately** (in this order — kill first, because Suspend does not close running sessions):
+   - **Kill session** — the kill button on the dashboard (disconnects the live session right away).
+   - **Suspend** — `/clients/{id}` → **Suspend** (downgrades to Free/expired trial, blocks new registrations; does **not** close running sessions — handled by the kill step).
+   - **Disable the token** — `/tokens`, disable the offending token.
+   - **Delete the tunnel profile** — if needed (prevents the slug from being re-registered).
+4. **Investigate** — evidence available: `Peer IP` on live sessions, per-account `usage_daily` (daily bandwidth/requests), and token movement history (`token_movements`). The peer IP is the direct socket address the broker sees; behind a reverse proxy it may be the proxy's IP — cross-check the proxy logs.
+5. **Proactive controls already in place**:
+   - Per-plan rate limiting (`rate_limit_rpm`) — **needs Redis**: SQLite-only mode (empty `DDNS_REDIS_URL`) has no rpm enforcement, deliberately fail-open (never blocks traffic).
+   - Monthly bandwidth caps (`bandwidth_monthly`).
+   - Soft warnings at **80% / 95%** of the allowance.
+   - **Hard cut** when tokens run out (new tunnel registration refused, running sessions closed).
+   - Per-tunnel auth: basic auth, bearer keys, IP whitelists (CIDR) — configured in the tunnel editor.
+6. **Legal notes** — collect the minimum (per-account usage + token movements); the broker does **not** log client IPs or traffic content. Verify before locking an account to avoid false positives (e.g. an impersonated customer / stolen token).
 
 ---
 
-## 7. Xử lý sự cố
+## 7. Troubleshooting
 
-| Triệu chứng | Nguyên nhân / cách xử lý |
+| Symptom | Cause / fix |
 |---|---|
-| Healthcheck fail | `docker compose logs broker`; thường do cổng 443 chưa mở trên firewall, hoặc cert sai |
-| Visitor "no such tunnel" | Apex chưa kích hoạt (`/domains`), client chưa connect, hoặc DNS wildcard chưa trỏ về VPS |
-| Khách nhận 429 | Rate limit theo plan (`rate_limit_rpm`); thử sau `Retry-After`; tăng hạn mức hoặc override |
-| Khách nhận 402 / token rejected | Token hết → nạp token (cổng thanh toán) hoặc operator `Credit tokens` |
-| Client "slug occupied" (`NoSubdomainAvailable`) | Tên slug cố định đang bị session khác chiếm; chờ hoặc đổi slug |
-| Cổng 443 bận | Đổi `DDNS_PUBLIC_PORT=8443` trong `deploy/.env` (URL sẽ hiện `:8443`); cổng trong container vẫn là 443 |
-| Bộ nhớ đệm không lên | `docker compose ps` — redis phải healthy trước (depends_on service_healthy) |
-| Cert hết hạn (PEM tĩnh) | Thay file trong `deploy/certs/` → `docker compose restart broker` |
+| Healthcheck failing | `docker compose logs broker`; usually port 443 closed on the firewall, or a bad certificate |
+| Visitor gets "no such tunnel" | Apex not activated (`/domains`), client not connected, or the DNS wildcard does not point at the VPS |
+| Customer gets 429 | Per-plan rate limit (`rate_limit_rpm`); retry after `Retry-After`; raise the limit or override it |
+| Customer gets 402 / token rejected | Token exhausted → top up (payment gateway) or operator `Credit tokens` |
+| Client "slug occupied" (`NoSubdomainAvailable`) | The fixed slug is held by another session; wait or change the slug |
+| Port 443 is taken | Set `DDNS_PUBLIC_PORT=8443` in `deploy/.env` (URLs then show `:8443`); the container port stays 443 |
+| Cache does not come up | `docker compose ps` — redis must be healthy first (depends_on service_healthy) |
+| Certificate expired (static PEM) | Replace the files in `deploy/certs/` → `docker compose restart broker` |
 
 ---
 
-## 8. Nâng cấp từ bản cũ
+## 8. Upgrading from an older release
 
 ```bash
 cd /opt/ddns-deploy
-./deploy.sh --update     # pull mã mới + rebuild + restart (giữ nguyên .env và volume)
+./deploy.sh --update     # pull new code + rebuild + restart (keeps .env and the volume)
 ```
 
-Không có migration thủ công — schema tự nâng qua `ensure_columns` khi khởi động. Bản ghi cũ không bị truy thu token (hạn mức tháng bắt đầu từ lần metering đầu tiên sau khi nâng cấp).
+No manual migrations — the schema upgrades itself via `ensure_columns` at
+startup. Old records are not back-billed for tokens (the monthly allowance
+starts at the first metering after the upgrade).
 
 ---
 
-## 9. Tham chiếu
+## 9. References
 
-- `README.md` — tổng quan kiến trúc + cấu trúc container.
-- `GUIDE-KHACH-HANG.md` — hướng dẫn cho khách (gửi file này cho họ).
-- `MANUAL.md` (trong repo) — tài liệu kỹ thuật đầy đủ: §4 dashboard/portal, §5 REST API, §6 Operations, §7 Admin.
+- `README.md` — architecture overview + container layout.
+- `GUIDE-KHACH-HANG.md` — customer guide (send this file to them).
+- `MANUAL.md` (in the repo) — full technical manual: §4 dashboard/portal, §5 REST API, §6 Operations, §7 Admin.
