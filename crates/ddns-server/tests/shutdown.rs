@@ -2,6 +2,7 @@
 
 mod common;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use common::{FakeClient, start_broker, test_cert};
@@ -122,17 +123,28 @@ async fn new_connections_refused_after_stop() {
     // Stop the broker first.
     broker.stop().await;
 
-    // A fresh TLS connect should fail within 2 s.
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        FakeClient::connect_raw(addr, &cert, "tok_refuse", true, true),
-    )
-    .await;
-
-    // Either the connect times out (listener gone) or the broker rejects it.
-    // In either case we did not hang.
-    if let Ok((_fc, Ok(_))) = result {
-        panic!("connection succeeded after stop() — should be refused");
+    // After stop() the listener is closed, so a fresh connection must fail —
+    // via timeout (listener never answers), ECONNREFUSED (port closed), or a
+    // rejected/aborted handshake if the OS still accepts during teardown.
+    let tcp =
+        tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(addr)).await;
+    match tcp {
+        Err(_) | Ok(Err(_)) => {} // listener gone — refused/timed out
+        Ok(Ok(stream)) => {
+            // TCP still accepted (teardown race): a full client connect must
+            // then be rejected at the TLS/WS layer.
+            drop(stream);
+            let client_tls = common::client_tls(&cert);
+            let connector = tokio_tungstenite::Connector::Rustls(Arc::new(client_tls));
+            let url = format!("wss://127.0.0.1:{}/connect", addr.port());
+            let outcome =
+                tokio_tungstenite::connect_async_tls_with_config(url, None, false, Some(connector))
+                    .await;
+            assert!(
+                outcome.is_err(),
+                "connection succeeded after stop() — should be refused"
+            );
+        }
     }
 }
 
