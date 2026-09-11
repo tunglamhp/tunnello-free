@@ -260,7 +260,6 @@ When you receive an **abuse report** (phishing, malware, spam…), follow this o
    To run it in the container (the broker image has no `sqlite3`): `docker run --rm -v ddns_broker-data:/data alpine sh -c 'apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 /data/ddns.db'` — replace `ddns_broker-data` with the real volume name (`docker volume ls`).
 3. **Stop it immediately** (in this order — kill first, because Suspend does not close running sessions):
    - **Kill session** — the kill button on the dashboard (disconnects the live session right away).
-   - **Suspend** — `/clients/{id}` → **Suspend** (downgrades to Free/expired trial, blocks new registrations; does **not** close running sessions — handled by the kill step).
    - **Disable the token** — `/tokens`, disable the offending token.
    - **Delete the tunnel profile** — if needed (prevents the slug from being re-registered).
 4. **Investigate** — evidence available: `Peer IP` on live sessions, per-account `usage_daily` (daily bandwidth/requests), and token movement history (`token_movements`). The peer IP is the direct socket address the broker sees; behind a reverse proxy it may be the proxy's IP — cross-check the proxy logs.
@@ -281,7 +280,7 @@ When you receive an **abuse report** (phishing, malware, spam…), follow this o
 | Healthcheck failing | `docker compose logs broker`; usually port 443 closed on the firewall, or a bad certificate |
 | Visitor gets "no such tunnel" | Apex not activated (`/domains`), client not connected, or the DNS wildcard does not point at the VPS |
 | Customer gets 429 | Per-token rate limit (`rate_limit_rpm`); retry after `Retry-After`; raise the limit or override it |
-| Customer gets 402 / token rejected | Token exhausted → top up (payment gateway) or operator `Credit tokens` |
+| Customer gets 402 / token rejected | Token exhausted → operator grants more via `Credit tokens` |
 | Client "slug occupied" (`NoSubdomainAvailable`) | The fixed slug is held by another session; wait or change the slug |
 | Port 443 is taken | Set `DDNS_PUBLIC_PORT=8443` in `deploy/.env` (URLs then show `:8443`); the container port stays 443 |
 | Cache does not come up | `docker compose ps` — redis must be healthy first (depends_on service_healthy) |

@@ -748,18 +748,6 @@ const ICONS: &[(&str, &str)] = &[
         "Settings",
         r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>"#,
     ),
-    (
-        "Usage",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13.5h12M4 11V7.5M8 11V4.5M12 11V6"/></svg>"#,
-    ),
-    (
-        "Upgrade",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l1.8 4.2L14 7l-4.2.8L8 12l-1.8-4.2L2 7l4.2-.8z"/></svg>"#,
-    ),
-    (
-        "API",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.5" cy="10.5" r="2.5"/><path d="M7.5 8.5L13.5 2.5M11 5l1.5 1.5M8.5 7.5l1.5 1.5"/></svg>"#,
-    ),
 ];
 
 /// Inline SVG for a nav label; empty string when no icon is defined.

@@ -1,7 +1,7 @@
 //! Slug → session registry. Slug allocation is atomic against concurrent
 //! registrations (DashMap entry API) and enforces the global `max_sessions`
 //! cap best-effort — concurrent registrations at the cap can overshoot by a
-//! bounded amount; that is acceptable for the free tier.
+//! bounded amount, which is acceptable.
 
 use std::sync::Arc;
 
