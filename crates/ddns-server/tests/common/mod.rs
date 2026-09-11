@@ -11,6 +11,61 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+/// Hard cap on one response body, so a runaway or chunked stream cannot grow a
+/// test process without bound.
+#[allow(dead_code)]
+pub const READ_CAP: usize = 1024 * 1024;
+
+/// Per-read deadline. Bounds a server that stalls mid-response, so a broken
+/// endpoint fails the test instead of hanging the CI job until it is killed.
+#[allow(dead_code)]
+pub const READ_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether `resp` already holds one complete HTTP/1.1 response.
+///
+/// Shared by the per-test HTTP helpers, which otherwise wait only for EOF. The
+/// broker may answer with keep-alive or a chunked body and never close the
+/// socket, in which case an EOF-only read loop blocks forever. Header/body
+/// framing tells us when to stop instead.
+#[allow(dead_code)]
+pub fn response_is_complete(resp: &[u8]) -> bool {
+    let Some(split) = resp.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return false;
+    };
+    let body = &resp[split + 4..];
+    let Ok(head) = std::str::from_utf8(&resp[..split]) else {
+        return true; // Unparseable header: do not spin waiting for more.
+    };
+    let lower = head.to_ascii_lowercase();
+    let header = |name: &str| -> Option<&str> {
+        lower
+            .lines()
+            .find_map(|l| l.strip_prefix(name))
+            .map(|v| v.trim())
+    };
+
+    // An explicit `Connection: close` means more data may still follow (the
+    // body); EOF remains the only reliable terminator, bounded by
+    // READ_CAP/READ_TIMEOUT.
+    if header("connection:").is_some_and(|v| v.eq_ignore_ascii_case("close")) {
+        return false;
+    }
+    if header("transfer-encoding:").is_some_and(|v| v.contains("chunked")) {
+        // Complete once the zero-length terminator chunk has arrived.
+        return body.windows(5).any(|w| w == b"0\r\n\r\n") || body.ends_with(b"0\r\n");
+    }
+    if let Some(len) = header("content-length:").and_then(|v| v.parse::<usize>().ok()) {
+        return body.len() >= len;
+    }
+    // No framing headers: 1xx/204/304 carry no body, otherwise wait for EOF.
+    let status = head
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(200);
+    matches!(status, 100..=199 | 204 | 304)
+}
+
 /// Convenience: creates a `TokenRecord` for tests.
 #[allow(dead_code)]
 pub fn test_record(id: &str, enabled: bool) -> ddns_server::TokenRecord {

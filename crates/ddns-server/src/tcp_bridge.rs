@@ -10,10 +10,16 @@ use ddns_proto::{Frame, Opcode, OpenMeta, StreamKind};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, timeout};
 use tokio_rustls::server::TlsStream;
 
 use crate::http_app::BrokerState;
 use crate::session::{DATA_CHUNK_MAX, STREAM_QUEUE_CAP};
+
+/// How long to wait for the visitor direction to finish after the client closed.
+/// The client closes once it has sent everything, so the visitor read normally
+/// hits EOF immediately; this only bounds the case where it never does.
+const VISITOR_DRAIN_GRACE: Duration = Duration::from_secs(5);
 
 pub async fn handle(tls: TlsStream<TcpStream>, state: BrokerState) {
     let Some(sni) = tls.get_ref().1.server_name().map(|n| n.to_string()) else {
@@ -68,7 +74,7 @@ pub async fn handle(tls: TlsStream<TcpStream>, state: BrokerState) {
 
     // Visitor → client: read chunks → DATA frames; EOF/error → CLOSE(OK).
     let session_v = session.clone();
-    let visitor_task = tokio::spawn(async move {
+    let mut visitor_task = tokio::spawn(async move {
         let mut buf = vec![0u8; DATA_CHUNK_MAX];
         loop {
             match rd.read(&mut buf).await {
@@ -110,7 +116,18 @@ pub async fn handle(tls: TlsStream<TcpStream>, state: BrokerState) {
         }
     }
     let _ = wr.shutdown().await;
-    visitor_task.abort();
+    // Give the visitor→client direction a bounded grace period instead of
+    // aborting it outright. `abort()` cancels the task at its current await
+    // point, so a DATA frame that is mid-`send_frame` when the client closes is
+    // discarded rather than relayed. The visitor read normally reaches EOF as
+    // soon as the client closes, so this returns immediately in the common case
+    // and only waits when the peer never closes.
+    if timeout(VISITOR_DRAIN_GRACE, &mut visitor_task)
+        .await
+        .is_err()
+    {
+        visitor_task.abort();
+    }
 
     session.streams.remove(&stream_id);
     session.release_stream();

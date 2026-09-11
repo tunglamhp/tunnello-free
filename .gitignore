@@ -21,3 +21,8 @@ tunnello-vps/deploy/.env
 .agents/
 .claude/
 skills-lock.json
+
+# Local safety net from the workspace-consolidation cleanup. Holds backups of
+# removed duplicates/logs (including a copy of an old tunnello-vps snapshot) and
+# the full git bundles, so it must never be committed.
+.cleanup-backup/

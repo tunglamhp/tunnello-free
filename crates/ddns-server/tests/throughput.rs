@@ -74,7 +74,9 @@ async fn run_once() -> (f64, std::time::Duration, ddns_server::Broker) {
                     frames += 1;
                     fc.send_data(f.stream_id, f.payload.to_vec()).await;
                 }
-                Opcode::Close => break,
+                Opcode::Close => {
+                    break;
+                }
                 _ => {}
             }
         }
@@ -94,6 +96,12 @@ async fn run_once() -> (f64, std::time::Duration, ddns_server::Broker) {
             tls_w.write_all(&payload[..n]).await.unwrap();
             sent += n;
         }
+        // Half-close the write side before dropping the stream. `write_all` only
+        // means the bytes were accepted locally; without an explicit shutdown
+        // the tail can still be discarded when `tls_w` drops, and the broker
+        // then sees an error instead of EOF and relays only part of the payload
+        // (observed as exactly 64 KiB lost, 2044 of 2048 chunks).
+        tls_w.shutdown().await.unwrap();
         sent
     });
     let reader = tokio::spawn(async move {

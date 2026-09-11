@@ -7,7 +7,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::{client_tls, start_broker, test_cert};
+use common::{READ_CAP, READ_TIMEOUT, client_tls, response_is_complete, start_broker, test_cert};
 use ddns_server::TokenStore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
@@ -33,12 +33,20 @@ async fn http1_request_is_auth_gated() {
     .unwrap();
     let mut resp = Vec::new();
     let mut buf = [0u8; 4096];
+    let mut remaining = READ_CAP;
     loop {
-        let n = tls.read(&mut buf).await.unwrap();
-        if n == 0 {
+        if remaining == 0 || response_is_complete(&resp) {
             break;
         }
-        resp.extend_from_slice(&buf[..n]);
+        let read = tokio::time::timeout(READ_TIMEOUT, tls.read(&mut buf)).await;
+        match read {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                remaining -= n;
+                resp.extend_from_slice(&buf[..n]);
+            }
+            Ok(Err(_)) | Err(_) => break,
+        }
     }
     let text = String::from_utf8_lossy(&resp);
     assert!(

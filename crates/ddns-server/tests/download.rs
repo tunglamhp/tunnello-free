@@ -9,6 +9,8 @@ use tokio_rustls::TlsConnector;
 
 mod common;
 
+use common::{READ_CAP, READ_TIMEOUT, response_is_complete};
+
 use common::client_tls;
 
 // ---------------------------------------------------------------------------
@@ -28,11 +30,19 @@ async fn http1(addr: std::net::SocketAddr, cert: &[u8], host: &str, request: &st
     tls.write_all(request.as_bytes()).await.unwrap();
     let mut resp = Vec::new();
     let mut buf = [0u8; 4096];
+    let mut remaining = READ_CAP;
     loop {
-        match tls.read(&mut buf).await {
-            Ok(0) => break,
-            Ok(n) => resp.extend_from_slice(&buf[..n]),
-            Err(_) => break,
+        if remaining == 0 || response_is_complete(&resp) {
+            break;
+        }
+        let read = tokio::time::timeout(READ_TIMEOUT, tls.read(&mut buf)).await;
+        match read {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                remaining -= n;
+                resp.extend_from_slice(&buf[..n]);
+            }
+            Ok(Err(_)) | Err(_) => break,
         }
     }
     String::from_utf8_lossy(&resp).into_owned()
