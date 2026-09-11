@@ -25,12 +25,11 @@ broker. The broker never touches exit traffic.
 
 | Option | Pros | Cons |
 |---|---|---|
-| **`boringtun` (userspace, chosen for free edition)** | Pure Rust (Cloudflare's implementation of the WG protocol); zero kernel-driver install — pairs with the `tun` crate for the TUN device; identical behavior Windows/Linux; testable in-process | Userspace throughput below kernel WG (fine: home uplinks) |
+| **`boringtun` (userspace, chosen)** | Pure Rust (Cloudflare's implementation of the WG protocol); zero kernel-driver install — pairs with the `tun` crate for the TUN device; identical behavior Windows/Linux; testable in-process | Userspace throughput below kernel WG (fine: home uplinks) |
 | Kernel WG (Linux `wireguard` module + `wireguard-nt` Windows) | Line-rate; `wg-quick` tooling | Driver/dkms install per platform; divergent admin flows; harder CI |
 
-Decision: free edition embeds `boringtun` + `tun` (zero-install, one
-binary). The PRIVATE edition may add a kernel-WG backend as deep
-customization (out of free scope per the repo-split rule).
+Decision: embeds `boringtun` + `tun` (zero-install, one binary). A kernel-WG
+backend is a possible future extension, out of scope here.
 
 ### ADR-W2: NAT on the exit — nftables (operator-decided)
 
@@ -52,10 +51,10 @@ exit opt-in; the broker rejects exit signaling from sessions without it.
 
 ## 3. Components
 
-### Visitor (`ddns up --exit-node` — free edition, minimal surface)
+### Visitor (`ddns up --exit-node` — minimal surface)
 
 1. **TUN device** via `tun` crate; **MTU 1420** default (research §2.4;
-   1412 PPPoE / 1280 fallback are PRIVATE tuning knobs, not free flags).
+   1412 PPPoE / 1280 fallback remain tuning knobs and are not exposed).
 2. **boringtun session** to the exit's WG endpoint (the client's public
    host:port — already known from tunnel registration).
 3. **AllowedIPs `0.0.0.0/0`** + fwmark policy routing (research §2.1) with
@@ -82,8 +81,7 @@ exit opt-in; the broker rejects exit signaling from sessions without it.
 - Relay the `wg_pubkey` in signaling (one field).
 - **KEY-AGE TRACKING (gap from research §1.3, closed here)**: the broker
   records the issue time of every visitor WG key registration and enforces
-  re-authentication after **180 days** (operator-configurable 1–180 in the
-  PRIVATE edition; free ships the 180-day default, no UI). Expired keys
+  re-authentication after **180 days** (fixed default, no UI). Expired keys
   fail signaling with `error{key_expired}` until the visitor re-registers
   a fresh keypair.
 - Metrics: `ddns_exit_peers_active` gauge. No exit traffic visibility.
@@ -111,7 +109,7 @@ ddns up --exit-node
 | DNS via tunnel resolver + block :53 outside | §2.2 | T3/T4 |
 | Kill-switch `OUTPUT ! -o wg0 ! fwmark REJECT` | §2.3 | T3 |
 | IPv6 block-not-leak | §2.2 | T3 |
-| MTU 1420 explicit (1412/1280 private tuning) | §2.4 | T3 |
+| MTU 1420 explicit (1412/1280 tuning deferred) | §2.4 | T3 |
 | Private keys never leave the generating device | WG model | T1/T2 |
 
 ## 6. Threat model deltas vs the smoltcp design
@@ -120,16 +118,16 @@ ddns up --exit-node
 - WG protocol provides replay protection + forward secrecy (Noise
   transport, ~2-min session key rotation) — not our code.
 - New risks: WG private-key storage on disk (0600, document; TPM-bound
-  storage = PRIVATE future), peer-list growth on the exit (bounded by
+  storage = documented future), peer-list growth on the exit (bounded by
   tunnel count), broker key-age DB row per visitor (small).
 
-## 7. Repo split (deep-customization rule)
+## 7. Exposed surface (minimal by design)
 
-| | FREE (tunnello-free) | PRIVATE (tunnello) |
-|---|---|---|
-| Exit on/off | `ddns up --exit-node` | same |
-| Defaults | MTU 1420, DNS via tunnel, kill-switch on, 180-day key age, deny-LAN | same baseline |
-| Tuning | — (not exposed) | split DNS, MTU override, allowed subnets, multi-exit, kernel-WG backend, key-age window |
+| | Behaviour |
+|---|---|
+| Exit on/off | `ddns up --exit-node` |
+| Defaults | MTU 1420, DNS via tunnel, kill-switch on, 180-day key age, deny-LAN |
+| Tuning | not exposed — the safe defaults are pinned |
 
 ## 8. Non-goals (v1)
 
@@ -137,7 +135,7 @@ ddns up --exit-node
 - No macOS/BSD support (undocumented, untested).
 - No multi-exit selection UI; one exit per visitor session.
 - No broker visibility into exit traffic.
-- No TPM-bound key storage (documented future/private).
+- No TPM-bound key storage (documented future).
 
 ## 9. Testing strategy (feeds the plan)
 

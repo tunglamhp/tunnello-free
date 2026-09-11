@@ -1,7 +1,7 @@
-//! Quickstart port helpers for the operator dashboard (free edition).
+//! Quickstart port helpers for the operator dashboard.
 //!
-//! feature and is not part of this build; only the pure port-parsing helper
-//! used by the operator quickstart flow lives here.
+//! Only the pure port-parsing helper used by the operator quickstart flow lives
+//! here.
 
 /// Parse the tunnel's comma-separated ports into (http_port, tcp_port): the
 /// first web-ish port becomes --port, the first other port becomes --tcp.

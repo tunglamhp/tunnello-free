@@ -1,11 +1,8 @@
 //! Operator + client activity audit log.
 //!
-//! Records who did what when: token/client/plan/settings/tunnel/domain/code
-//! operations, logins, and purchases. `record` is fire-and-forget — errors
-//! are logged and never break the calling handler. Rows are immutable; there
-//! is no edit/delete surface. Financial transactions already live in
-//! the paid-edition ledgers; this log captures the operations
-//! around them.
+//! Records who did what when: token/settings/tunnel/domain/code operations and
+//! logins. `record` is fire-and-forget — errors are logged and never break the
+//! calling handler. Rows are immutable; there is no edit/delete surface.
 
 use std::sync::{Arc, MutexGuard};
 

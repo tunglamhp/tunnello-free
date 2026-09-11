@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn serde_defaults_missing_quota_fields_to_zero() {
-        // Old plan JSON predates the commercial quota fields; they must read 0.
+        // Older serialized limits predate the quota fields; they must read 0.
         let old = r#"{"max_sessions":2,"max_streams":32,"max_bytes":2147483648,"ttl_secs":28800}"#;
         let l: TokenLimits = serde_json::from_str(old).unwrap();
         assert_eq!(l.max_tunnels, 0);

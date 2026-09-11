@@ -1,7 +1,7 @@
 #!/bin/sh
 # home-push-backup.sh — run on the HOME broker. Every few minutes, push a
 # consistent SQLite snapshot (plus the TLS certs) to the backup VPS so the
-# failover broker can serve the same tokens/plans/codes.
+# failover broker can serve the same tokens.
 #
 # Requirements: ssh/scp key from home -> VPS (ssh-copy-id once), docker CLI.
 #

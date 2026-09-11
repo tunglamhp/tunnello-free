@@ -15,9 +15,6 @@ pub struct Account {
     pub role: String,
     pub email_verified_at: Option<i64>,
     pub created_at: i64,
-    pub currency: String,
-    pub price_monthly_override_cents: Option<i64>,
-    pub price_yearly_override_cents: Option<i64>,
     pub otp_secret: Option<String>,
     pub otp_enabled: bool,
     pub limits_override: Option<String>,
@@ -66,7 +63,6 @@ impl AccountStore {
         let row = db
             .query_row(
                 "SELECT id, email, password_hash, role, email_verified_at, created_at, \
-                 currency, price_monthly_override_cents, price_yearly_override_cents, \
                  otp_secret, otp_enabled, limits_override
                  FROM accounts WHERE email = ?1",
                 params![email],
@@ -78,12 +74,9 @@ impl AccountStore {
                         role: r.get(3)?,
                         email_verified_at: r.get(4)?,
                         created_at: r.get(5)?,
-                        currency: r.get(6)?,
-                        price_monthly_override_cents: r.get(7)?,
-                        price_yearly_override_cents: r.get(8)?,
-                        otp_secret: r.get(9)?,
-                        otp_enabled: r.get::<_, i64>(10)? != 0,
-                        limits_override: r.get(11)?,
+                        otp_secret: r.get(6)?,
+                        otp_enabled: r.get::<_, i64>(7)? != 0,
+                        limits_override: r.get(8)?,
                     })
                 },
             )
@@ -96,7 +89,6 @@ impl AccountStore {
         let row = db
             .query_row(
                 "SELECT id, email, password_hash, role, email_verified_at, created_at, \
-                 currency, price_monthly_override_cents, price_yearly_override_cents, \
                  otp_secret, otp_enabled, limits_override
                  FROM accounts WHERE id = ?1",
                 params![id],
@@ -108,12 +100,9 @@ impl AccountStore {
                         role: r.get(3)?,
                         email_verified_at: r.get(4)?,
                         created_at: r.get(5)?,
-                        currency: r.get(6)?,
-                        price_monthly_override_cents: r.get(7)?,
-                        price_yearly_override_cents: r.get(8)?,
-                        otp_secret: r.get(9)?,
-                        otp_enabled: r.get::<_, i64>(10)? != 0,
-                        limits_override: r.get(11)?,
+                        otp_secret: r.get(6)?,
+                        otp_enabled: r.get::<_, i64>(7)? != 0,
+                        limits_override: r.get(8)?,
                     })
                 },
             )
@@ -127,7 +116,6 @@ impl AccountStore {
         let mut stmt = db
             .prepare(
                 "SELECT id, email, password_hash, role, email_verified_at, created_at, \
-                 currency, price_monthly_override_cents, price_yearly_override_cents, \
                  otp_secret, otp_enabled, limits_override \
                  FROM accounts WHERE role = 'client' ORDER BY id DESC",
             )
@@ -141,12 +129,9 @@ impl AccountStore {
                     role: r.get(3)?,
                     email_verified_at: r.get(4)?,
                     created_at: r.get(5)?,
-                    currency: r.get(6)?,
-                    price_monthly_override_cents: r.get(7)?,
-                    price_yearly_override_cents: r.get(8)?,
-                    otp_secret: r.get(9)?,
-                    otp_enabled: r.get::<_, i64>(10)? != 0,
-                    limits_override: r.get(11)?,
+                    otp_secret: r.get(6)?,
+                    otp_enabled: r.get::<_, i64>(7)? != 0,
+                    limits_override: r.get(8)?,
                 })
             })
             .map_err(StoreError::from)?
@@ -160,7 +145,6 @@ impl AccountStore {
         let row = db
             .query_row(
                 "SELECT id, email, password_hash, role, email_verified_at, created_at, \
-                 currency, price_monthly_override_cents, price_yearly_override_cents, \
                  otp_secret, otp_enabled, limits_override
                  FROM accounts WHERE role = 'operator' ORDER BY id LIMIT 1",
                 [],
@@ -172,12 +156,9 @@ impl AccountStore {
                         role: r.get(3)?,
                         email_verified_at: r.get(4)?,
                         created_at: r.get(5)?,
-                        currency: r.get(6)?,
-                        price_monthly_override_cents: r.get(7)?,
-                        price_yearly_override_cents: r.get(8)?,
-                        otp_secret: r.get(9)?,
-                        otp_enabled: r.get::<_, i64>(10)? != 0,
-                        limits_override: r.get(11)?,
+                        otp_secret: r.get(6)?,
+                        otp_enabled: r.get::<_, i64>(7)? != 0,
+                        limits_override: r.get(8)?,
                     })
                 },
             )
@@ -244,10 +225,9 @@ impl AccountStore {
         Ok(())
     }
 
-    /// `monthly`/`yearly` of `None` clear the override (fall back to plan price).
     /// Read the account's `limits_override` JSON parsed to a `TokenLimits`.
-    /// `None` when unset or malformed (degrade to plan limits, never brick
-    /// enforcement on a bad override).
+    /// `None` when unset or malformed (degrade to the token's own limits, never
+    /// brick enforcement on a bad override).
     pub async fn limits_override(
         &self,
         account_id: i64,
@@ -268,7 +248,7 @@ impl AccountStore {
                     tracing::warn!(
                         account = account_id,
                         error = %e,
-                        "limits override JSON unparseable; falling back to plan limits"
+                        "limits override JSON unparseable; falling back to token limits"
                     );
                     Ok(None)
                 }
@@ -278,7 +258,7 @@ impl AccountStore {
     }
 
     /// Set (or clear) the account's wholesale `limits_override`. `None`
-    /// clears the override so the account falls back to its plan limits.
+    /// clears the override so the account falls back to its own limits.
     pub async fn set_limits_override(
         &self,
         account_id: i64,
@@ -317,7 +297,7 @@ impl AccountStore {
         }
     }
 
-    /// set, else the account's plan limits (operator accounts stay unlimited).
+    /// set, else the account's own limits (operator accounts stay unlimited).
     pub async fn effective_limits(&self, account_id: i64) -> Result<TokenLimits, StoreError> {
         if let Some(ov) = self.limits_override(account_id).await? {
             return Ok(ov);
@@ -561,15 +541,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(owner, Some(op.id));
-    }
-
-    #[tokio::test]
-    async fn new_account_has_default_currency_and_null_overrides() {
-        let s = store();
-        let a = s.create("client@example.com", "h", "client").await.unwrap();
-        assert_eq!(a.currency, "USD");
-        assert_eq!(a.price_monthly_override_cents, None);
-        assert_eq!(a.price_yearly_override_cents, None);
     }
 
     #[tokio::test]

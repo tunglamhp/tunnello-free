@@ -27,10 +27,10 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # Resolve the branch to clone. This repository defaults to `main`, but forks and
-# mirrors (for example tunglamhp/tunnello) use `master`, so ask the remote
-# instead of assuming: `git ls-remote --symref <url> HEAD` reports the default
-# branch. Probing also makes a typo in DDNS_REPO_URL fail here with a clear
-# message rather than inside `deploy.sh`.
+# mirrors may use `master`, so ask the remote instead of assuming:
+# `git ls-remote --symref <url> HEAD` reports the default branch. Probing also
+# makes a typo in DDNS_REPO_URL fail here with a clear message rather than
+# inside `deploy.sh`.
 resolve_branch() {
     local want="${DDNS_BRANCH:-}" found=""
 

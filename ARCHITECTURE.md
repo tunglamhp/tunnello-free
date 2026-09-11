@@ -2,14 +2,13 @@
 
 ## Workspace layout
 
-| Crate | Role | Free | Paid |
-|---|---|---|---|
-| `ddns-proto` | Wire protocol: control frames, stream framing, limits, tickets | ✅ | ✅ |
-| `ddns-server` | Broker: TLS listener, tunnel relay, dashboard, health, metrics | ✅ | ✅ |
-| `ddns-client` | Tunnel client: WSS connect + P2P WebRTC data plane + `ddns connect` helper | ✅ | ✅ |
-| `ddns-echo` | Tiny echo app for demo/testing | ✅ | ✅ |
-| `ddns-web` | Dashboard frontend islands (Dioxus/WASM) | ✅ | ✅ |
-| `ddns-billing` | Stripe checkout, plans, subscriptions, client accounts, portal | ❌ | ✅ |
+| Crate | Role |
+|---|---|
+| `ddns-proto` | Wire protocol: control frames, stream framing, limits, tickets |
+| `ddns-server` | Broker: TLS listener, tunnel relay, dashboard, health, metrics |
+| `ddns-client` | Tunnel client: WSS connect + P2P WebRTC data plane + `ddns connect` helper |
+| `ddns-echo` | Tiny echo app for demo/testing |
+| `ddns-web` | Dashboard frontend islands (Dioxus/WASM) |
 
 ## Broker module map (ddns-server)
 
@@ -22,22 +21,29 @@ ddns-server/src/
 │   ├── mux.rs            WebSocket multiplexer: register → route frames → teardown
 │   ├── http_tunnel.rs    HTTP/HTTPS visitor → broker → client relay
 │   ├── tcp_bridge.rs     Raw TCP tunnel bridge (ddns-tcp ALPN)
+│   ├── udp_bridge.rs     UDP tunnel relay
 │   ├── session.rs        Per-session state: limits, counters, kill
 │   ├── registry.rs       Session registry with capacity limits
 │   ├── p2p_signal.rs     WebRTC signaling relay (/__p2p/signal)
 │   ├── http_options.rs   Per-tunnel HTTP header options
 │   ├── connector.rs      Browser connector page + service worker
-│   │
+│   ├── debug_capture.rs  Bounded request/response capture for `--debug-web`
+│
 ├── ── Auth & security ──
 │   ├── auth.rs           Operator login/session cookie/CSRF/rate-limit middleware
+│   ├── auth_oidc.rs      OIDC visitor gate
+│   ├── auth_otp.rs       Email-OTP visitor gate
+│   ├── visitor_auth.rs   Signed visitor-auth cookie (HMAC-SHA256) + redirect checks
 │   ├── token.rs          Tunnel tokens: argon2id hashing, SQLite store, fast-index
 │   ├── rate_limit.rs     Per-IP token buckets (register/login/signal)
 │   ├── otp.rs            TOTP 2FA for operator login (RFC 6238)
 │   ├── audit.rs          Activity audit log
 │   ├── tls.rs            ACME (TLS-ALPN-01) + static PEM certificates
+│   ├── dns_acme.rs       ACME DNS-01 challenge flow
+│   ├── keyage.rs         Tunnel key rotation / age policy
 │   ├── stun.rs           Embedded STUN server for NAT traversal
 │   ├── setup.rs          Quickstart setup codes
-│   │
+│
 ├── ── Dashboard & config ──
 │   ├── http_app.rs       Router: all routes, security headers, CSRF
 │   ├── ui.rs             HTML templates + nav + branding
@@ -48,7 +54,9 @@ ddns-server/src/
 │   ├── providers.rs      DNS-01 challenge provider abstraction
 │   ├── mailer.rs         SMTP email delivery
 │   ├── schema.rs         SQLite DDL + column migrations
-│   │
+│   ├── account.rs        Operator accounts and verification tokens
+│   ├── portal.rs         Quickstart port helpers for the operator dashboard
+│
 ├── ── Infrastructure ──
 │   ├── config.rs         BrokerConfig: listen/domain/cert/env vars
 │   ├── hot.rs            Redis hot counter (rate limit fast path)
@@ -62,9 +70,9 @@ ddns-server/src/
 - **Deny-by-default auth**: all routes require a valid session unless explicitly
   allow-listed. First-run setup requires a bootstrap token on non-loopback binds.
 - **Argon2id** for password/token hashing; **HMAC-SHA256** constant-time compare
-  for session cookies and P2P tickets.
+  for session cookies, visitor-auth cookies and P2P tickets.
 - **Rate limiting**: per-IP token buckets on public endpoints (register,
-  login, portal signup); per-tunnel sliding window via Redis when configured.
+  login); per-tunnel sliding window via Redis when configured.
 - **Graceful degradation**: Redis down → rate limiting passes through.
   Metrics endpoint always serves. Health endpoint never blocks.
 
@@ -72,8 +80,7 @@ ddns-server/src/
 
 | Trait | Purpose | Implementations |
 |---|---|---|
-| `Dns01Provider` | ACME DNS-01 challenge fulfillment | ManualTxt, Cloudflare |
-| `BillingBackend` *(paid)* | Payment processing | Stripe |
+| `Dns01Provider` | ACME DNS-01 challenge fulfillment | `ManualTxt`, `Cloudflare`, `Porkbun` |
 | *Future:* `TransportCodec` | Alternative wire formats | — |
 
 ## Adding a new feature

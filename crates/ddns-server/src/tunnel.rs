@@ -192,7 +192,7 @@ impl TunnelStore {
     /// Create a tunnel, enforcing the tenant's enabled-tunnel cap in the SAME
     /// mutex acquisition as the INSERT — two concurrent creates for one
     /// account can no longer both pass the check and exceed the cap.
-    /// `max_enabled` is the account's plan cap (0 = unlimited); ownerless
+    /// `max_enabled` is the token's tunnel cap (0 = unlimited); ownerless
     /// (operator/legacy) tokens are exempt because their `account_id` is NULL.
     pub async fn create_checked(
         &self,
@@ -268,7 +268,7 @@ impl TunnelStore {
                 )?;
                 if enabled >= max_enabled {
                     return Err(StoreError::Quota(format!(
-                        "Plan tunnel limit reached ({})",
+                        "Tunnel limit reached ({})",
                         max_enabled
                     )));
                 }
@@ -360,7 +360,7 @@ impl TunnelStore {
     }
 
     /// Delete every tunnel profile bound to a token (cascade on token
-    /// delete — otherwise orphaned profiles keep counting toward the plan cap).
+    /// delete — otherwise orphaned profiles keep counting toward the cap).
     pub async fn delete_for_token(&self, token_id: &str) -> Result<(), StoreError> {
         let store = self.store.clone();
         let token_id = token_id.to_string();

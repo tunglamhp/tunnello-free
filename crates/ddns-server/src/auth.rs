@@ -269,7 +269,7 @@ pub async fn require_session(
     // and portal route is gated by require_operator below,
     // which reject when no session claims were inserted (defense-in-depth:
     // the incomplete path allowlist that used to live here let spoofed Hosts
-    // reach /clients, /plans, /codes, /audit, /tunnels, …).
+    // reach /audit, /tunnels, /settings, …).
     if is_tunnel_host(&req, &state) {
         return next.run(req).await;
     }

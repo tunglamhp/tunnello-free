@@ -25,7 +25,7 @@ pub struct TokenRecord {
     pub id: String,
     pub name: String,
     /// Owning account id (NULL = legacy/operatorless token, exempt from
-    /// plan entitlement).
+    /// stored limits).
     pub owner_id: Option<i64>,
     pub limits: TokenLimits,
     pub enabled: bool,
@@ -277,7 +277,7 @@ impl TokenStore {
 
     /// Create a token: random id + tok_ secret, argon2id-hashed. The secret
     /// is returned once and never stored in recoverable form. Ownerless
-    /// (legacy/operator) tokens are exempt from plan entitlement.
+    /// (legacy/operator) tokens carry their own limits.
     pub async fn create(
         &self,
         name: &str,

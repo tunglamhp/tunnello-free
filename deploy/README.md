@@ -116,7 +116,7 @@ before starting; disable with `DDNS_SKIP_FIREWALL=1` / `DDNS_SKIP_DNS_CHECK=1`.
 
 - **Request rate limiting** (cache): visitor HTTP requests through a tunnel
   are rate-limited with a fixed-minute cache sliding window at the tenant's
-  plan `rate_limit_rpm`. Requests over the limit get `429 Too Many Requests`
+  token `rate_limit_rpm`. Requests over the limit get `429 Too Many Requests`
   + `Retry-After` (seconds to the next minute boundary). Enforcement runs only
   when the cache is configured — see `DDNS_REDIS_URL` below.
 - **Cache service**: `docker-compose.yml` ships a `redis:7-alpine` service

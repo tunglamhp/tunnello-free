@@ -17,10 +17,6 @@ HTTP-options pipeline, tokens, the REST API, both binaries' CLIs, security,
 and troubleshooting. Production container deployment lives in
 [`deploy/README.md`](deploy/README.md).
 
-> Free edition note: billing, plans UI, Stripe, token packs, and portal
-> payments remain private-edition only. This manual documents the public
-> broker and client surface only.
-
 ---
 
 ## 1. Quickstart (local development)

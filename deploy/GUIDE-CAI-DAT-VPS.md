@@ -157,7 +157,7 @@ systemctl daemon-reload && systemctl enable --now vps-monitor
 
 **Limits (be upfront):** up to ~5 minutes of the newest data can be lost (between
 two pushes); live sessions drop on a flip → clients reconnect (backoff) to the
-broker DNS now points at; tokens/plans/codes come from the last snapshot; P2P
+broker DNS now points at; tokens come from the last snapshot; P2P
 sessions need a visitor reload. The VPS normally does **not** run the stack
 (monitor only) — it starts on failover and stops when home recovers.
 
@@ -265,7 +265,7 @@ When you receive an **abuse report** (phishing, malware, spam…), follow this o
    - **Delete the tunnel profile** — if needed (prevents the slug from being re-registered).
 4. **Investigate** — evidence available: `Peer IP` on live sessions, per-account `usage_daily` (daily bandwidth/requests), and token movement history (`token_movements`). The peer IP is the direct socket address the broker sees; behind a reverse proxy it may be the proxy's IP — cross-check the proxy logs.
 5. **Proactive controls already in place**:
-   - Per-plan rate limiting (`rate_limit_rpm`) — **needs Redis**: SQLite-only mode (empty `DDNS_REDIS_URL`) has no rpm enforcement, deliberately fail-open (never blocks traffic).
+   - Per-token rate limiting (`rate_limit_rpm`) — **needs Redis**: SQLite-only mode (empty `DDNS_REDIS_URL`) has no rpm enforcement, deliberately fail-open (never blocks traffic).
    - Monthly bandwidth caps (`bandwidth_monthly`).
    - Soft warnings at **80% / 95%** of the allowance.
    - **Hard cut** when tokens run out (new tunnel registration refused, running sessions closed).
@@ -280,7 +280,7 @@ When you receive an **abuse report** (phishing, malware, spam…), follow this o
 |---|---|
 | Healthcheck failing | `docker compose logs broker`; usually port 443 closed on the firewall, or a bad certificate |
 | Visitor gets "no such tunnel" | Apex not activated (`/domains`), client not connected, or the DNS wildcard does not point at the VPS |
-| Customer gets 429 | Per-plan rate limit (`rate_limit_rpm`); retry after `Retry-After`; raise the limit or override it |
+| Customer gets 429 | Per-token rate limit (`rate_limit_rpm`); retry after `Retry-After`; raise the limit or override it |
 | Customer gets 402 / token rejected | Token exhausted → top up (payment gateway) or operator `Credit tokens` |
 | Client "slug occupied" (`NoSubdomainAvailable`) | The fixed slug is held by another session; wait or change the slug |
 | Port 443 is taken | Set `DDNS_PUBLIC_PORT=8443` in `deploy/.env` (URLs then show `:8443`); the container port stays 443 |

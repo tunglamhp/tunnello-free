@@ -23,8 +23,8 @@ flowchart LR
 
 | Boundary | Public surface | Protection |
 |---|---|---|
-| Customer data plane | `8443/tcp` by default, tunnel hostnames | TLS, WSS, tunnel token, per-plan quotas |
-| Customer free portal | `/portal/*` free workflows | Client session cookie and role middleware |
+| Customer data plane | `8443/tcp` by default, tunnel hostnames | TLS, WSS, tunnel token, per-tunnel quotas |
+| Customer portal | `/portal/*` workflows | Client session cookie and role middleware |
 | Operator control plane | SSH and optional private admin path | WireGuard network, operator cookie, optional 2FA/IP allowlist |
 | Durable state | SQLite in `broker-data` | Docker volume, backups, container non-root runtime |
 | Hot enforcement state | Redis | Private Compose network; fail-open only for cache-backed limits |
@@ -97,10 +97,7 @@ The generated WireGuard peer files are stored in the `wireguard-config` volume.
 Copy the operator peer configuration to the administrator device, then restrict
 SSH and any private admin proxy to the WireGuard subnet at the VPS firewall.
 
-## Visibility and entitlement policy
+## Visibility and limits policy
 
-Free customer workflows remain public through the client portal. Paid controls
-
-operator middleware. Client-side paid navigation and checkout routes are not
-registered. A paid entitlement can still be granted manually by the operator,
-and its limits are enforced at tunnel registration.
+The customer portal is public and reachable through the operator middleware.
+Token limits set by the operator are enforced at tunnel registration.

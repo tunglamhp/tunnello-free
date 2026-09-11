@@ -49,13 +49,11 @@ The command downloads the static `ddns` binary, installs it to PATH, and opens a
 
 ---
 
-## Free edition boundary
+## What's included
 
-Features that remain free/public:
-- `ddns-proto`, `ddns-client`, `ddns-server` core tunneling, `/connect`, `/install.sh`, `/download/{file}`
-
-Features that stay private:
-- `ddns-billing`, payments, plans/subscriptions UI, token packs, portal payments
+- `ddns-proto`, `ddns-client`, `ddns-server` — protocol, tunnel client and broker
+- Self-hosted dashboard, custom domains, visitor auth (OIDC / email OTP)
+- `/connect`, `/install.sh`, `/install.ps1`, `/download/{file}` one-line client setup
 
 ---
 

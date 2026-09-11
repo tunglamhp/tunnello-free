@@ -95,8 +95,7 @@ pub struct BrokerState {
     /// Tunnel profiles (fixed slugs, custom hosts, http options) shared with
     /// the API and mux.
     pub tunnels: tunnel::TunnelStore,
-    /// Operator account (login, password change, 2FA). Client accounts are a
-    /// paid-edition feature and do not exist in this build.
+    /// Operator account (login, password change, 2FA).
     pub accounts: account::AccountStore,
     /// SMTP mailer (None when DDNS_SMTP_HOST is unset; `--dev` logs links).
     pub mailer: Option<crate::mailer::Mailer>,
@@ -211,27 +210,25 @@ impl BrokerState {
         Ok(())
     }
 
-    /// Entitlement snapshot for a connecting token:
-    /// plan limits; operator/ownerless tokens keep their own limits. Store
-    /// errors degrade to the token's own limits (never block registration).
+    /// Entitlement snapshot for a connecting token: the token's own
+    /// operator-set limits. Store errors degrade to the token's own limits
+    /// (never block registration).
     pub async fn entitle(&self, record: &token::TokenRecord) -> TokenLimits {
-        // Free edition: tokens carry their own operator-set limits.
         record.limits
     }
 
-    /// Resolve the account's plan `max_tunnels` cap for a tunnel create
-    /// (0 = unlimited/exempt). Ownerless (operator/legacy) tokens and unknown
-    /// tokens are exempt (0). The cap comes from the account's PLAN via
-    /// `effective_limits` (never `TokenRecord.limits`). The handler passes it
-    /// to `TunnelStore::create_checked`, which enforces it atomically with the
-    /// INSERT (count + insert share one mutex acquisition).
+    /// Resolve the `max_tunnels` cap for a tunnel create (0 = unlimited).
+    /// Ownerless (operator/legacy) tokens and unknown tokens are exempt (0).
+    /// The cap comes from the token's own limits via `entitle`. The handler
+    /// passes it to `TunnelStore::create_checked`, which enforces it atomically
+    /// with the INSERT (count + insert share one mutex acquisition).
     pub async fn tunnel_quota_cap(&self, token_id: &str) -> u32 {
         let Some(record) = self.config.token_store.get(token_id).await else {
             // Unknown token: let create_checked surface the validation error.
             return 0;
         };
         if record.owner_id.is_none() {
-            return 0; // operator/legacy token — exempt from plan quota
+            return 0; // operator/legacy token — no tunnel cap
         }
         self.entitle(&record).await.max_tunnels
     }
@@ -1646,25 +1643,6 @@ async fn tokens_delete(State(state): State<BrokerState>, Path(id): Path<String>)
     state.kill_sessions_for_token(&id);
     crate::ui::flash_redirect("/tokens", crate::ui::FlashKind::Success, "Token deleted")
 }
-
-// ---------------------------------------------------------------------------
-// clients — GET /clients, GET /clients/{id}, POST activate-plan, POST suspend
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// plans — GET /plans, POST /plans/{id}
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// codes — GET /codes, POST /codes, POST /codes/{code}
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// analytics — GET /analytics (usage totals, top accounts, per-account table)
-// ---------------------------------------------------------------------------
 
 /// GET /audit — operator activity log (newest first). Transactions live in
 /// this is the operation + login trail.

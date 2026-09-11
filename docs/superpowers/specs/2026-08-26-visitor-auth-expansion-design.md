@@ -106,7 +106,6 @@ mechanism as `pin_auth`).
 - No per-tunnel OIDC provider override (broker-wide env config only).
 - No JWT access tokens for API visitors (cookie sessions only).
 - No group/role claims mapping (email presence is the gate).
-- Free edition only; no billing hooks.
 
 ## Phase 2 — Deep Web Debugger (backlog summary)
 

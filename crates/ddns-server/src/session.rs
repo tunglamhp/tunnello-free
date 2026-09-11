@@ -82,7 +82,7 @@ pub struct TunnelSession {
     pub created_at: Instant,
     /// Peak concurrent streams — observability for the dashboard.
     pub streams_peak: AtomicU32,
-    /// Visitor HTTP requests handled this session (commercial metering).
+    /// Visitor HTTP requests handled this session (usage metering).
     pub requests: AtomicU64,
     /// Direct peer address observed during client registration.
     peer_ip: std::sync::RwLock<Option<IpAddr>>,

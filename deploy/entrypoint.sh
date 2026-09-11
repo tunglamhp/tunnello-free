@@ -4,8 +4,8 @@
 # flag set is assembled here. Exactly one certificate source is required.
 set -eu
 
-# The DB holds every secret (token hashes, Stripe keys are env-only but admin
-# hash + tokens are in the DB). Create everything 0600/0700 regardless of the
+# The DB holds every secret (token hashes; the admin hash and tokens are in the
+# DB, other secrets are env-only). Create everything 0600/0700 regardless of the
 # host umask; the mode survives the setpriv exec below.
 umask 077
 

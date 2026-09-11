@@ -33,7 +33,8 @@ pub use ddns_proto::{KillReason, Usage};
 /// Hint for an exhausted token balance, shared by the mid-session Error path
 /// and the registration-rejection path so the user gets the same guidance as
 /// the `KillReason::TokenExhausted` hint.
-const TOKEN_EXHAUSTED_HINT: &str = "token balance exhausted — top up or upgrade your plan";
+const TOKEN_EXHAUSTED_HINT: &str =
+    "token balance exhausted — ask the broker operator to raise the token's limits";
 
 // ---------------------------------------------------------------------------
 // Public types

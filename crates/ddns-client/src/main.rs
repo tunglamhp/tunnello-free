@@ -288,14 +288,14 @@ fn fmt_host(host: &str) -> String {
 fn print_kill_hint(reason: KillReason) {
     let hint = match reason {
         KillReason::QuotaExceeded => {
-            "hint: the tunnel exceeded its quota — upgrade your plan for more data"
+            "hint: the tunnel exceeded its quota — ask the broker operator to raise the token's limits"
         }
         KillReason::TtlExpired => {
             "hint: the tunnel session expired — reconnect to get a new subdomain"
         }
         KillReason::Admin => "hint: the tunnel was stopped by an administrator",
         KillReason::TokenExhausted => {
-            "hint: your token balance is exhausted — top up or upgrade your plan"
+            "hint: your token balance is exhausted — ask the broker operator to top it up"
         }
     };
     eprintln!("{hint}");

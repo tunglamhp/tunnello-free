@@ -2,8 +2,7 @@
 
 ## Versioning
 
-- `free` releases use plain `X.Y.Z` tags.
-- `private` releases use `X.Y.Z-private` tags in the private repo.
+- Releases use plain `X.Y.Z` tags.
 - `release/<major>.<minor>` branches preserve maintenance versions.
 
 ## [Unreleased]
@@ -37,13 +36,13 @@
   failing. All eight readers now stop on HTTP framing (content-length / chunked
   terminator / bodyless status) with a per-read timeout and a response size cap.
 - **`install-server.sh` cloned a fixed branch name** — it defaulted to
-  `DDNS_BRANCH=main`, which breaks any override of `DDNS_REPO_URL` (for example
-  `tunglamhp/tunnello` uses `master`). It now resolves the remote's default
-  branch via `git ls-remote --symref`, validates an explicit `DDNS_BRANCH`
-  override, and falls back to `main`/`master`.
+  `DDNS_BRANCH=main`, which breaks any override of `DDNS_REPO_URL` for a mirror
+  whose default branch differs. It now resolves the remote's default branch via
+  `git ls-remote --symref`, validates an explicit `DDNS_BRANCH` override, and
+  falls back to `main`/`master`.
 
 ### Planned
-- Keep the free/public surface aligned with the private broker core minus billing/plans UI.
+- Keep the dashboard and client surface aligned with the broker core.
 
 ## [0.11.0] — 2026-09-09
 

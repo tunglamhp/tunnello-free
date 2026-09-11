@@ -201,7 +201,7 @@ visitor payload back, all inside the test process.
 - [ ] **Step 1: CLI parse tests** (RED → implement → GREEN): `up --exit-node`, `up --cleanup`, `--allow-exit` (client tunnel mode), no tuning flags exist (free rule).
 - [ ] **Step 2: Docs** — admin checklists + verifier checklist from research §4 (kill-switch curl test, DNS-leak dig, nft ruleset audit, peer add/remove under load, PMTU ping) + security notice (exit sees traffic metadata).
 - [ ] **Step 3:** version 0.10.0; full serial suite green; fmt; clippy `-D warnings`.
-- [ ] **Step 4: Commit** — `feat: ddns up --exit-node wireguard full tunnel (0.10.0)`; push; mirror docs + spec + plan to private.
+- [ ] **Step 4: Commit** — `feat: ddns up --exit-node wireguard full tunnel (0.10.0)`; push; mirror docs + spec + plan.
 
 ---
 

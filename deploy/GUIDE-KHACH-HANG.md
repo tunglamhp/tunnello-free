@@ -50,7 +50,7 @@ Or download it manually: `https://<your-domain>/download/ddns-x86_64-unknown-lin
    This token is your connection key; anyone who has it can open your tunnel — keep it secret.
 
 > Tokens created from the **portal** belong to your account and count against
-> your plan's limits (number of tunnels, bandwidth, request rate). Tokens
+> your token's limits (number of tunnels, bandwidth, request rate). Tokens
 > created by the operator (dashboard) are standalone and do not count against
 > your account.
 
@@ -131,7 +131,7 @@ expires after **7 days**; refresh the Quickstart page to get a new one.
 **API** (API key, header `Authorization: Bearer ddns_...`):
 
 ```
-GET  /api/v1/me              → account info + plan + token balance
+GET  /api/v1/me              → account info + token balance
 GET  /api/v1/tokens          → balance + token history
 GET  /api/v1/tunnels         → tunnel list + live numbers
 GET  /api/v1/usage?since=    → daily usage series
@@ -145,7 +145,7 @@ GET  /api/v1/usage?since=    → daily usage series
 - Each month your account is topped up according to your plan.
 - At **80% / 95%** of the monthly allowance the system sends email/warnings.
 - When **tokens run out**: tunnels are cut off and new tunnel registration is refused until the operator tops up your allowance or the next cycle renews it.
-- Rate limit: requests/minute per plan; exceeding it returns `429` with `Retry-After` (retry after N seconds).
+- Rate limit: requests/minute per token; exceeding it returns `429` with `Retry-After` (retry after N seconds).
 
 ---
 
@@ -154,7 +154,7 @@ GET  /api/v1/usage?since=    → daily usage series
 | Problem | Fix |
 |---|---|
 | `error: token rejected` / cannot connect | Wrong token (recheck `tok_...`), token deleted/disabled, or your account ran out of tokens (see §6) |
-| `429 Too Many Requests` | Over your plan's request rate; wait `Retry-After` seconds and retry |
+| `429 Too Many Requests` | Over your token's request rate; wait `Retry-After` seconds and retry |
 | Page shows "no such tunnel" | Client not connected (check client logs) or wrong slug |
 | `slug is occupied` (NoSubdomainAvailable) | The slug is used by another session; end the old session or wait a few minutes |
 | Tunnel keeps dropping | Check network/local firewall, or the token allowance is nearly out; run the client with `Restart=always` |

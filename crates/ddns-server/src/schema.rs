@@ -17,9 +17,6 @@ CREATE TABLE IF NOT EXISTS accounts(
     role TEXT NOT NULL DEFAULT 'operator',
     email_verified_at INTEGER,
     created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER)),
-    currency TEXT NOT NULL DEFAULT 'USD',
-    price_monthly_override_cents INTEGER,
-    price_yearly_override_cents INTEGER,
     otp_secret TEXT,
     otp_enabled INTEGER NOT NULL DEFAULT 0,
     limits_override TEXT
@@ -107,19 +104,6 @@ CREATE TABLE IF NOT EXISTS setup_codes(
 /// SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; existing
 /// databases need a PRAGMA-guarded column add for the new `owner_id` columns.
 pub fn ensure_columns(conn: &rusqlite::Connection) -> Result<(), rusqlite::Error> {
-    if !has_column(conn, "accounts", "currency")? {
-        conn.execute_batch(
-            "ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';",
-        )?;
-    }
-    if !has_column(conn, "accounts", "price_monthly_override_cents")? {
-        conn.execute_batch(
-            "ALTER TABLE accounts ADD COLUMN price_monthly_override_cents INTEGER;",
-        )?;
-    }
-    if !has_column(conn, "accounts", "price_yearly_override_cents")? {
-        conn.execute_batch("ALTER TABLE accounts ADD COLUMN price_yearly_override_cents INTEGER;")?;
-    }
     if !has_column(conn, "accounts", "otp_secret")? {
         conn.execute_batch("ALTER TABLE accounts ADD COLUMN otp_secret TEXT;")?;
     }

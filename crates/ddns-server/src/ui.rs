@@ -461,7 +461,7 @@ tr:hover td { background: var(--panel-2); }
 .slider-row input[type=range] { flex: 1; min-width: 220px; }
 .slider-row select { width: auto; }
 .slider-row input[type=number] { min-width: 96px; }
-/* value + unit row (plans editor) */
+/* value + unit row */
 .unit-row { display: flex; gap: 8px; align-items: center; }
 .unit-row input { flex: 1; min-width: 140px; }
 .unit-row select { width: auto; }
@@ -552,7 +552,7 @@ html[data-theme="light"] .theme-toggle .tt-thumb { left: 22px; }
 .toast-info { border-left-color: var(--info); }
 .toast button { background: transparent; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0; line-height: 1; height: auto; display: inline-flex; align-items: center; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-/* ---- form grid (plans, wider forms) ---- */
+/* ---- form grid (wider forms) ---- */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 2px; }
 /* ---- scrollable wide tables (mobile) ---- */
@@ -686,7 +686,6 @@ pub enum NavItem {
     Tunnels,
     Domains,
     Tokens,
-    Analytics,
     Policies,
 
     Audit,
@@ -701,7 +700,6 @@ impl NavItem {
             Self::Tunnels => "/tunnels",
             Self::Domains => "/domains",
             Self::Tokens => "/tokens",
-            Self::Analytics => "/analytics",
             Self::Policies => "/policies",
             Self::Audit => "/audit",
             Self::Settings => "/settings",
@@ -715,7 +713,6 @@ impl NavItem {
             Self::Tunnels => "Tunnels",
             Self::Domains => "Domains",
             Self::Tokens => "Tokens",
-            Self::Analytics => "Analytics",
             Self::Policies => "Policies",
             Self::Audit => "Activity",
             Self::Settings => "Settings",
@@ -746,22 +743,6 @@ const ICONS: &[(&str, &str)] = &[
     (
         "Tokens",
         r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="6" width="13" height="7" rx="1.5"/><path d="M5 6V4.5a3 3 0 0 1 6 0V6"/></svg>"#,
-    ),
-    (
-        "Clients",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 13.5c.6-2.5 2.7-4 5-4s4.4 1.5 5 4"/></svg>"#,
-    ),
-    (
-        "Plans",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M5.5 2.5v11M10.5 2.5v11M1.5 7h13"/></svg>"#,
-    ),
-    (
-        "Codes",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5"/></svg>"#,
-    ),
-    (
-        "Analytics",
-        r#"<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 13.5h12M4 11V7.5M8 11V4.5M12 11V6"/></svg>"#,
     ),
     (
         "Settings",
@@ -801,7 +782,7 @@ fn activity_block(active: NavItem) -> String {
         NavItem::Domains => &["domain."],
         NavItem::Tokens => &["token."],
         NavItem::Settings => &["settings."],
-        NavItem::Dashboard | NavItem::Analytics | NavItem::Policies => &[],
+        NavItem::Dashboard | NavItem::Policies => &[],
         NavItem::Audit | NavItem::None => return String::new(),
     };
     let Some(audit) = AUDIT.get() else {
@@ -844,7 +825,7 @@ pub fn page_shell(title: &str, active: NavItem, body: &str) -> String {
                 NavItem::Policies,
             ],
         ),
-        ("Operations", &[NavItem::Analytics, NavItem::Audit]),
+        ("Operations", &[NavItem::Audit]),
         ("Account", &[NavItem::Settings]),
     ];
     let mut nav = String::new();

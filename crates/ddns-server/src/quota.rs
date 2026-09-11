@@ -7,7 +7,7 @@
 //!   hits also emit a `quota_hit` webhook (fire-and-forget).
 //! * **Request rate limiter** ([`RateLimiter`], Phase C): a fixed-minute Redis
 //!   sliding window over the HTTP tunnel traffic path. Visitor requests beyond
-//!   the plan's `rate_limit_rpm` get `429` + `Retry-After`. Redis is the
+//!   the token's `rate_limit_rpm` get `429` + `Retry-After`. Redis is the
 //!   enforcement hot path only; SQLite-mode (no Redis) passes through.
 
 use std::net::IpAddr;
