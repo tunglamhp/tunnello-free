@@ -132,20 +132,25 @@ async fn signal_run(
         }
         // Key-age enforcement: an exit-mode pubkey older than the policy
         // window is rejected until the visitor re-registers (spec §3.Broker).
-        if let Some(pk) = &wg_pubkey
-            && crate::keyage::key_age().is_some_and(|ka| ka.expired(pk, crate::now_secs()))
-        {
-            let _ = ws.send(Message::Text(failed("key_expired"))).await;
-            return;
-        }
-        let ticket = issue_ticket(&session.session_secret(), &session.slug);
-        let (tx, r) = mpsc::channel::<String>(VISITOR_QUEUE_CAP);
-        state.p2p_visitors.insert(ticket.clone(), tx);
+        //
+        // `record` must run BEFORE the age check: `expired` reports an unknown
+        // key as expired, so checking first rejected every first-seen pubkey and
+        // the only `record` call site sat behind that check — meaning no
+        // exit-mode key was ever stored and every offer failed `key_expired`.
+        // `record` is `or_insert`, so a re-hello still does not refresh the
+        // clock: the age is fixed at first sight and rotation is still enforced.
         if let Some(pk) = &wg_pubkey
             && let Some(ka) = crate::keyage::key_age()
         {
             ka.record(pk, crate::now_secs());
+            if ka.expired(pk, crate::now_secs()) {
+                let _ = ws.send(Message::Text(failed("key_expired"))).await;
+                return;
+            }
         }
+        let ticket = issue_ticket(&session.session_secret(), &session.slug);
+        let (tx, r) = mpsc::channel::<String>(VISITOR_QUEUE_CAP);
+        state.p2p_visitors.insert(ticket.clone(), tx);
         let control = Control::P2pVisitorOffer {
             ticket: ticket.clone(),
             sdp,

@@ -240,9 +240,17 @@ pub fn apply_with_auth(
         );
     }
     if let Some(h) = &opts.host_rewrite {
-        let _ = req
-            .headers_mut()
-            .insert(HOST, HeaderValue::from_str(h).unwrap());
+        // `host_rewrite` is operator-supplied (form field / JSON API) and is not
+        // validated on write, so a control byte makes `from_str` fail. Never
+        // unwrap here: the release profile is `panic = "abort"`, so a panic on
+        // this path takes down the whole broker for every tenant. Matches the
+        // `add_headers` handling below — a bad value is dropped, not fatal.
+        match HeaderValue::from_str(h) {
+            Ok(v) => {
+                req.headers_mut().insert(HOST, v);
+            }
+            Err(_) => tracing::warn!("ignoring un-encodable host_rewrite value"),
+        }
     }
     for (name, value) in &opts.add_headers {
         if let Ok(n) = HeaderName::from_bytes(name.as_bytes())
@@ -285,4 +293,52 @@ fn redirect_to_auth(kind: &str, back: &str) -> Response {
 
 fn current_path(req: &Request<Body>) -> String {
     crate::visitor_auth::safe_back(req.uri().path_and_query().map(|p| p.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req() -> Request<Body> {
+        Request::builder()
+            .uri("/")
+            .body(Body::empty())
+            .expect("request builds")
+    }
+
+    /// A `host_rewrite` that `HeaderValue` rejects must be dropped, not
+    /// unwrapped. The release profile is `panic = "abort"`, so panicking here
+    /// aborted the entire broker for every tenant on the first visitor request
+    /// to the tunnel. The value is reachable: the options form percent-decodes
+    /// `%0A` to a real newline before storing it, and the JSON API accepts a
+    /// `\n` in the string verbatim.
+    #[test]
+    fn unencodable_host_rewrite_is_dropped_not_panicked() {
+        let opts = HttpOptions {
+            host_rewrite: Some("backend.example.com\nevil: 1".to_string()),
+            ..HttpOptions::default()
+        };
+        let mut r = req();
+        let gate = apply(&mut r, IpAddr::from([127, 0, 0, 1]), &opts);
+        assert!(gate.is_none(), "no auth gate should fire");
+        assert!(
+            r.headers().get(HOST).is_none(),
+            "an un-encodable host_rewrite must be dropped, not applied"
+        );
+    }
+
+    /// The valid case still rewrites the Host header.
+    #[test]
+    fn encodable_host_rewrite_is_applied() {
+        let opts = HttpOptions {
+            host_rewrite: Some("backend.example.com".to_string()),
+            ..HttpOptions::default()
+        };
+        let mut r = req();
+        let _ = apply(&mut r, IpAddr::from([127, 0, 0, 1]), &opts);
+        assert_eq!(
+            r.headers().get(HOST).and_then(|v| v.to_str().ok()),
+            Some("backend.example.com")
+        );
+    }
 }

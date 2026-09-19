@@ -6,12 +6,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine as _;
 use bytes::Bytes;
 use common::{FakeClient, client_tls, spawn_local_app, start_broker, test_cert};
 use ddns_proto::Control;
 use ddns_proto::frame::CLOSE_OK;
 use ddns_proto::ticket::verify_ticket;
-use ddns_server::TokenStore;
+use ddns_server::{TokenStore, keyage};
 use futures_util::{SinkExt, StreamExt};
 use http::header::HOST;
 use http_body_util::BodyExt;
@@ -237,6 +238,62 @@ async fn signaling_ws_issues_ticket_and_relays_offer_to_client() {
     let answer = recv_json(&mut ws).await;
     assert_eq!(answer["type"], "answer");
     assert_eq!(answer["sdp"], "v=0 answer");
+
+    broker.stop().await;
+}
+
+#[tokio::test]
+async fn fresh_wg_pubkey_is_accepted_and_recorded() {
+    // Regression: `expired()` reports an UNKNOWN key as expired, and the only
+    // `record` call sat *behind* that check — so a first-seen exit-mode pubkey
+    // was rejected `key_expired` and never recorded, forever. Every legitimate
+    // exit-node offer failed. `record` now runs first (it is `or_insert`, so a
+    // re-hello still does not refresh the clock).
+    let (cert, key) = test_cert();
+    let (addr, broker) =
+        start_broker(&cert, &key, tokens().await, 256, Duration::from_secs(5)).await;
+    let (mut fc, reply) = FakeClient::connect(addr, &cert, "tok_test").await;
+    let slug = FakeClient::slug(&reply);
+
+    // A pubkey the key-age store has never seen.
+    let fresh_pk = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    assert!(
+        keyage::key_age_or_panic()
+            .expect("key-age store initialized")
+            .expired(&fresh_pk, now_secs()),
+        "precondition: an unknown key reports expired"
+    );
+
+    let mut ws = connect_signal_ws(addr, &cert).await;
+    send_json(
+        &mut ws,
+        serde_json::json!({
+            "type": "hello",
+            "slug": slug,
+            "sdp": "v=0\r\n",
+            "ice": [],
+            "wg_pubkey": fresh_pk
+        }),
+    )
+    .await;
+
+    // On success the broker relays the offer to the exit client and says nothing
+    // back on the visitor socket, so the proof is the relayed offer itself.
+    let offer = tokio::time::timeout(std::time::Duration::from_secs(2), fc.recv_control())
+        .await
+        .unwrap_or_else(|_| panic!("a first-seen pubkey must be relayed, not rejected"));
+    assert!(
+        matches!(offer, Control::P2pVisitorOffer { .. }),
+        "expected a relayed visitor offer, got {offer:?}"
+    );
+
+    // And it is now on record, so the age check is meaningful next time.
+    assert!(
+        !keyage::key_age_or_panic()
+            .expect("key-age store initialized")
+            .expired(&fresh_pk, now_secs()),
+        "a first-seen key must be recorded, not rejected"
+    );
 
     broker.stop().await;
 }

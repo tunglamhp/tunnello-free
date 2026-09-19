@@ -8,6 +8,12 @@
 ## [Unreleased]
 
 ### Security
+- **`rustls` upgraded 0.23.43 → 0.23.45** (RUSTSEC-2026-0285, "TLS 1.3 handshake
+  messages incorrectly accepted across encryption level boundaries"). `rustls`
+  terminates the broker's TLS, so the advisory was reachable from the network.
+  `rustls-webpki` moved 0.103.13 → 0.103.15 in the same update. `cargo audit`
+  reports zero vulnerabilities; the two accepted advisory *warnings* are
+  unchanged (`rustls-pemfile` unmaintained, `chacha20` yanked).
 - **`h2` upgraded 0.4.15 → 0.4.19** (RUSTSEC-2026-0258, "h2 unbounded empty DATA
   frames"). `h2` backs hyper, which serves the broker's HTTP/2 traffic, so the
   advisory was reachable from the network. `cargo audit` now reports zero
@@ -17,6 +23,32 @@
   flagged yanked (an older entry in the lockfile, not a vulnerability).
 
 ### Fixed
+- **A bad Host-rewrite value aborted the whole broker.** `http_options::apply`
+  did `HeaderValue::from_str(h).unwrap()` on the operator-supplied
+  `host_rewrite`. `HeaderValue` rejects control bytes, and the value is stored
+  un-validated — the options form percent-decodes `%0A` to a real newline and the
+  JSON API accepts `\n` — so a pasted newline was enough to make `from_str` fail.
+  The release profile is `panic = "abort"`, so that panic killed the process for
+  *every* tenant on the next visitor request to that tunnel. An un-encodable
+  value is now dropped with a warning, matching the `add_headers` loop below it.
+- **Exit-node / multi-exit P2P never worked.** `KeyAgeStore::expired` reports an
+  *unknown* key as expired, but `p2p_signal` checked `expired()` **before**
+  `record()` — and that was the only `record` call site — so every first-seen
+  `wg_pubkey` was rejected `key_expired` and never stored. No exit-mode offer
+  could ever succeed. `record` now runs first; it is an `or_insert`, so a
+  re-hello still does not refresh the clock and key rotation stays enforced.
+- **One stalled visitor could wedge a whole session.** `mux::route_frame` awaited
+  an unbounded send on the bounded per-stream channel (`STREAM_QUEUE_CAP`).
+  Consumers write to the visitor socket with no timeout, so a visitor that stops
+  reading parks its consumer; once the queue filled, that await parked the
+  session's entire `select!` loop — no quota kill, no drain, no read-idle
+  timeout — leaving a session the operator could not reclaim until the visitor
+  released the socket. The wait is now bounded by `STREAM_SEND_TIMEOUT` (30 s),
+  after which the stream is closed with `CLOSE_APP_ERROR` and the loop resumes.
+  It is deliberately a *bounded wait* rather than a `try_send`: a visitor reading
+  a large response is routinely slower than the client sending it (a 256 KiB body
+  is 16 back-to-back frames against an 8-slot queue), and failing fast there
+  truncates healthy transfers.
 - **Stacked cards had no vertical gutter.** `.section` carried a bottom margin
   but `.card` did not, so pages that stack bare `.card`s — Settings and a
   client's detail page — rendered each card flush against the next. `.card` now

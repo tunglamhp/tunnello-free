@@ -14,6 +14,8 @@ use axum::extract::State;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use bytes::Bytes;
+use ddns_proto::frame::CLOSE_APP_ERROR;
 use ddns_proto::{Control, ErrorCode, Frame, KillReason, MAX_FRAME_PAYLOAD, Opcode};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, watch};
@@ -40,6 +42,13 @@ const READ_IDLE: Duration = Duration::from_secs(90);
 /// before force-closing the socket (a client that ignores `kill` must not
 /// leak the writer task).
 const CLOSE_GRACE: Duration = Duration::from_millis(500);
+/// How long `route_frame` waits for a full per-stream queue to drain before it
+/// gives up on that stream. Generous on purpose: a visitor reading a large
+/// response is momentarily slower than the client sending it, and that must not
+/// be mistaken for a stall. Bounded so a visitor that stops reading entirely
+/// cannot park the session's `select!` loop (and with it quota kills, drains and
+/// the read-idle timeout) for ever.
+const STREAM_SEND_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub async fn ws_handler(
     State(state): State<BrokerState>,
@@ -387,8 +396,12 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
                                     tracing::warn!("control message flood");
                                     break;
                                 }
-                                session.record_tx(bytes_tx as usize);
-                                session.record_rx(bytes_rx as usize);
+                                // Client-attested: these feed the usage counter,
+                                // so a hostile or buggy client can report any
+                                // u64. `try_from` keeps an unrepresentable value
+                                // from wrapping into a smaller one (under-count).
+                                session.record_tx(usize::try_from(bytes_tx).unwrap_or(usize::MAX));
+                                session.record_rx(usize::try_from(bytes_rx).unwrap_or(usize::MAX));
                             }
                             Ok(_) => {
                                 if !ctl.allow() {
@@ -476,6 +489,19 @@ async fn run(ws: WebSocket, state: BrokerState, peer: std::net::SocketAddr) {
 }
 
 /// Route one client frame to its stream's sink; unknown streams are dropped.
+///
+/// The send MUST NOT block on a bounded per-stream channel without a bound.
+/// Consumers write to the visitor socket with no timeout, so a visitor that
+/// simply stops reading parks its consumer; once the channel (`STREAM_QUEUE_CAP`)
+/// is full, an unbounded await here would park this session's whole `select!`
+/// loop — no kill, no drain, no read-idle timeout — leaving a session the
+/// operator could not reclaim until the visitor released the socket.
+///
+/// The wait is therefore *bounded*, not skipped: a burst of frames against a
+/// visitor that is reading but momentarily slower than the sender is normal
+/// (a 256 KiB response is 16 back-to-back frames against an 8-slot queue), so
+/// failing fast here would truncate healthy transfers. A consumer that never
+/// drains is abandoned after `STREAM_SEND_TIMEOUT` and the loop resumes.
 async fn route_frame(session: &TunnelSession, frame: Frame) {
     let Some(tx) = session.streams.get(&frame.stream_id).map(|g| g.clone()) else {
         tracing::debug!(stream = frame.stream_id, "frame for unknown stream");
@@ -484,7 +510,35 @@ async fn route_frame(session: &TunnelSession, frame: Frame) {
     if frame.opcode == Opcode::Data {
         session.record_rx(frame.payload.len());
     }
-    let _ = tx.send(frame).await;
+    let stream_id = frame.stream_id;
+    match tx.try_send(frame) {
+        Ok(()) => {}
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            session.streams.remove(&stream_id);
+        }
+        Err(mpsc::error::TrySendError::Full(frame)) => {
+            // Queue full: wait for the consumer, but never for ever.
+            if tokio::time::timeout(STREAM_SEND_TIMEOUT, tx.send(frame))
+                .await
+                .is_err()
+            {
+                session.streams.remove(&stream_id);
+                tracing::warn!(
+                    stream = stream_id,
+                    "stream stalled; closing unconsumed stream"
+                );
+                let _ = tokio::time::timeout(
+                    CLOSE_GRACE,
+                    session.send_frame(&Frame {
+                        opcode: Opcode::Close,
+                        stream_id,
+                        payload: Bytes::from_static(&[CLOSE_APP_ERROR]),
+                    }),
+                )
+                .await;
+            }
+        }
+    }
 }
 
 pub(crate) fn control_json(c: &Control) -> Utf8Bytes {
