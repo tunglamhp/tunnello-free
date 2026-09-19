@@ -17,6 +17,15 @@
   flagged yanked (an older entry in the lockfile, not a vulnerability).
 
 ### Fixed
+- **Stacked cards had no vertical gutter.** `.section` carried a bottom margin
+  but `.card` did not, so pages that stack bare `.card`s — Settings and a
+  client's detail page — rendered each card flush against the next. `.card` now
+  has a 20px bottom margin, matching the `.cards` grid gap; the grid still resets
+  its own children so the dashboard stat row is unaffected.
+- **Mismatched field baselines in two-column form rows.** `.form-row` used
+  `align-items: flex-end`, so a column carrying a `.hint` under its input grew
+  taller and pushed its own input above its sibling's. It is now `flex-start`, so
+  labels and inputs stay in line.
 - **TCP tunnel could drop the tail of a transfer** — `tcp_bridge` cancelled the
   visitor→client task with `abort()` as soon as the client closed. `abort()`
   cancels at the current await point, so a DATA frame mid-`send_frame` was

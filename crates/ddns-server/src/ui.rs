@@ -443,6 +443,11 @@ tr:hover td { background: var(--panel-2); }
 }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .cards .card { margin: 0; }
+/* Stacked cards need vertical rhythm: `.section` had a bottom margin but `.card`
+   did not, so pages that stack bare `.card`s (Settings, a client's detail page)
+   rendered them flush against each other with no gutter. `.cards` is a grid and
+   resets its children below, so this only affects standalone stacks. */
+.card { margin-bottom: 20px; }
 .section { margin-bottom: 24px; }
 .section h2 { font-size: 1.05em; font-weight: 600; margin: 0 0 12px; color: var(--text); }
 .create-form { margin-bottom: 24px; }
@@ -454,7 +459,10 @@ tr:hover td { background: var(--panel-2); }
 .card .value { font-size: 1.6em; font-weight: 600; }
 .card .mono { font-family: ui-monospace, Consolas, monospace; font-size: .95em; }
 .form-group { margin-bottom: 16px; }
-.form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: flex-end; }
+/* `flex-start`, not `flex-end`: a field carrying a `.hint` under its input is
+   taller than its sibling, and bottom-aligning pushed the inputs onto different
+   baselines. Top-aligning keeps the labels and inputs in line. */
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: flex-start; }
 .form-row > .form-group { flex: 1 1 0; min-width: 0; }
 .form-row input, .form-row select, .form-row textarea { max-width: none; }
 .slider-row { display: flex; gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
